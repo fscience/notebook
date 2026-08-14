@@ -1,67 +1,159 @@
-import Image from "next/image";
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import type { Project } from "@/lib/types";
+import ProjectList from "@/components/ProjectList";
+import Notebook from "@/components/Notebook";
+import FileExplorer from "@/components/FileExplorer";
+import { ChevronLeft, ChevronRight } from "@/components/icons";
 
 export default function Home() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+
+  const selected = projects.find((p) => p.id === selectedId) ?? null;
+
+  const loadProjects = useCallback(async () => {
+    try {
+      const res = await fetch("/api/projects");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setProjects(data);
+        setSelectedId((cur) => {
+          if (cur && data.some((p) => p.id === cur)) return cur;
+          return data[0]?.id ?? null;
+        });
+      }
+    } finally {
+      setLoadingProjects(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadProjects();
+  }, [loadProjects]);
+
+  async function handleCreate(name: string) {
+    const res = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || "创建项目失败");
+      return;
+    }
+    setProjects((prev) => [data, ...prev]);
+    setSelectedId(data.id);
+  }
+
+  async function handleDelete(id: string) {
+    const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || "删除项目失败");
+      return;
+    }
+    setProjects((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      setSelectedId((cur) => (cur === id ? (next[0]?.id ?? null) : cur));
+      return next;
+    });
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="flex h-screen w-full overflow-hidden">
+      {!leftCollapsed && (
+        <aside className="flex h-full w-60 shrink-0 flex-col border-r border-panel-border bg-panel-bg">
+          <div className="flex items-center justify-between border-b border-panel-border px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+              项目
+            </span>
+            <button
+              onClick={() => setLeftCollapsed(true)}
+              className="rounded p-1 text-muted hover:bg-hover hover:text-foreground"
+              title="收起左侧"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <ProjectList
+            projects={projects}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onCreate={handleCreate}
+            onDelete={handleDelete}
+            loading={loadingProjects}
+          />
+        </aside>
+      )}
+
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-10 shrink-0 items-center gap-2 border-b border-panel-border bg-panel-bg px-2">
+          {leftCollapsed ? (
+            <button
+              onClick={() => setLeftCollapsed(false)}
+              className="rounded p-1 text-muted hover:bg-hover hover:text-foreground"
+              title="展开左侧"
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          ) : (
+            <span className="w-4" />
+          )}
+          <span className="truncate text-sm font-semibold">
+            {selected ? selected.name : "Notebook"}
+          </span>
+          <div className="flex-1" />
+          {rightCollapsed ? (
+            <button
+              onClick={() => setRightCollapsed(false)}
+              className="rounded p-1 text-muted hover:bg-hover hover:text-foreground"
+              title="展开右侧"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              onClick={() => setRightCollapsed(true)}
+              className="rounded p-1 text-muted hover:bg-hover hover:text-foreground"
+              title="收起右侧"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          )}
+        </header>
+
+        <div className="flex min-h-0 flex-1">
+          <div className="min-w-0 flex-1 bg-background">
+            {selected ? (
+              <Notebook
+                key={selected.id}
+                projectId={selected.id}
+                projectName={selected.name}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-muted">
+                在左侧选择或创建一个项目
+              </div>
+            )}
+          </div>
+
+          {!rightCollapsed && (
+            <aside className="flex w-72 shrink-0 flex-col border-l border-panel-border bg-panel-bg">
+              {selected ? (
+                <FileExplorer key={selected.id} projectId={selected.id} />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-muted">
+                  选择一个项目
+                </div>
+              )}
+            </aside>
+          )}
         </div>
       </main>
     </div>
