@@ -63,14 +63,14 @@ function mimeFor(ext: string): string {
 
 export function runPython(
   code: string,
-  opts: { cwd: string; timeout?: number }
+  opts: { cwd: string; pythonPath: string; timeout?: number }
 ): Promise<PythonResult> {
   const timeoutMs = opts.timeout ?? 60000;
 
   return new Promise(async (resolve) => {
     let done = false;
     const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "nb-out-"));
-    const child = spawn("python3", ["-u", "-c", PREAMBLE + "\n" + code], {
+    const child = spawn(opts.pythonPath, ["-u", "-c", PREAMBLE + "\n" + code], {
       cwd: opts.cwd,
       env: {
         ...process.env,

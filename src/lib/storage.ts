@@ -33,7 +33,7 @@ export interface FileEntry {
 export const DATA_ROOT = path.join(process.cwd(), "data");
 export const PROJECTS_ROOT = path.join(DATA_ROOT, "projects");
 
-function ensureProjectId(id: string): string {
+export function ensureProjectId(id: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(id)) {
     throw new Error("Invalid project id");
   }

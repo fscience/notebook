@@ -1,18 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project } from "@/lib/types";
 import ProjectList from "@/components/ProjectList";
 import Notebook from "@/components/Notebook";
 import FileExplorer from "@/components/FileExplorer";
+import EnvPanel from "@/components/EnvPanel";
 import { ChevronLeft, ChevronRight } from "@/components/icons";
+
+const MIN_RIGHT_WIDTH = 200;
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [rightTab, setRightTab] = useState<"files" | "env">("files");
+  const [rightWidth, setRightWidth] = useState(288);
   const [loadingProjects, setLoadingProjects] = useState(true);
+  const [draggingRight, setDraggingRight] = useState(false);
+  const rightDragRef = useRef<{ startX: number; startWidth: number } | null>(
+    null
+  );
 
   const selected = projects.find((p) => p.id === selectedId) ?? null;
 
@@ -65,8 +74,39 @@ export default function Home() {
     });
   }
 
+  function startRightDrag(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    rightDragRef.current = { startX: e.clientX, startWidth: rightWidth };
+    setDraggingRight(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onRightDragMove(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = rightDragRef.current;
+    if (!drag) return;
+    const delta = e.clientX - drag.startX;
+    const max = Math.max(MIN_RIGHT_WIDTH, window.innerWidth * 0.7);
+    setRightWidth(
+      Math.min(Math.max(drag.startWidth - delta, MIN_RIGHT_WIDTH), max)
+    );
+  }
+
+  function endRightDrag(e: React.PointerEvent<HTMLDivElement>) {
+    rightDragRef.current = null;
+    setDraggingRight(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+  }
+
   return (
-    <div className="flex h-screen w-full overflow-hidden">
+    <div
+      className={`flex h-screen w-full overflow-hidden ${
+        draggingRight ? "select-none" : ""
+      }`}
+    >
       {!leftCollapsed && (
         <aside className="flex h-full w-60 shrink-0 flex-col border-r border-panel-border bg-panel-bg">
           <div className="flex items-center justify-between border-b border-panel-border px-3 py-2">
@@ -144,15 +184,58 @@ export default function Home() {
           </div>
 
           {!rightCollapsed && (
-            <aside className="flex w-72 shrink-0 flex-col border-l border-panel-border bg-panel-bg">
+            <>
+              <div
+                onPointerDown={startRightDrag}
+                onPointerMove={onRightDragMove}
+                onPointerUp={endRightDrag}
+                onPointerCancel={endRightDrag}
+                className="w-1 shrink-0 cursor-col-resize border-l border-panel-border bg-panel-bg transition-colors hover:bg-accent/50 active:bg-accent"
+                title="拖动调整宽度"
+              />
+              <aside
+                style={{ width: rightWidth }}
+                className="flex shrink-0 flex-col border-l border-panel-border bg-panel-bg"
+              >
               {selected ? (
-                <FileExplorer key={selected.id} projectId={selected.id} />
+                <div className="flex h-full flex-col">
+                  <div className="flex shrink-0 border-b border-panel-border">
+                    <button
+                      onClick={() => setRightTab("files")}
+                      className={`flex-1 py-1.5 text-xs font-medium ${
+                        rightTab === "files"
+                          ? "border-b-2 border-accent text-foreground"
+                          : "text-muted hover:text-foreground"
+                      }`}
+                    >
+                      文件
+                    </button>
+                    <button
+                      onClick={() => setRightTab("env")}
+                      className={`flex-1 py-1.5 text-xs font-medium ${
+                        rightTab === "env"
+                          ? "border-b-2 border-accent text-foreground"
+                          : "text-muted hover:text-foreground"
+                      }`}
+                    >
+                      环境
+                    </button>
+                  </div>
+                  <div className="min-h-0 flex-1">
+                    {rightTab === "files" ? (
+                      <FileExplorer key={selected.id} projectId={selected.id} />
+                    ) : (
+                      <EnvPanel key={selected.id} projectId={selected.id} />
+                    )}
+                  </div>
+                </div>
               ) : (
                 <div className="flex h-full items-center justify-center text-sm text-muted">
                   选择一个项目
                 </div>
               )}
-            </aside>
+              </aside>
+            </>
           )}
         </div>
       </main>
