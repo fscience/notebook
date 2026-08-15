@@ -32,8 +32,9 @@ const SKIP_TYPES = new Set([
   "footnoteReference",
 ]);
 
-function splitDocLinks(value: string): RootContent[] {
+function splitDocLinks(value: string): RootContent[] | null {
   const out: RootContent[] = [];
+  let changed = false;
   let last = 0;
   for (const m of value.matchAll(WIKI_LINK_RE)) {
     if (m.index > last) {
@@ -41,29 +42,30 @@ function splitDocLinks(value: string): RootContent[] {
     }
     const name = m[1].trim();
     if (name) {
+      changed = true;
       out.push({
         type: "link",
         url: DOC_LINK_PREFIX + encodeURIComponent(name),
         title: null,
         children: [{ type: "text", value: name }],
       });
+    } else {
+      out.push({ type: "text", value: value.slice(last, m.index + m[0].length) });
     }
     last = m.index + m[0].length;
   }
   if (last < value.length) {
     out.push({ type: "text", value: value.slice(last) });
   }
-  return out;
+  return changed ? out : null;
 }
 
 function replaceDocLinksInChildren(parent: Parent): void {
-  let changed = false;
   const children: RootContent[] = [];
   for (const child of parent.children) {
     if (child.type === "text") {
       const parts = splitDocLinks((child as Text).value);
-      if (parts.length > 1) {
-        changed = true;
+      if (parts) {
         children.push(...parts);
       } else {
         children.push(child);
@@ -78,7 +80,7 @@ function replaceDocLinksInChildren(parent: Parent): void {
       children.push(child as RootContent);
     }
   }
-  if (changed) parent.children = children;
+  parent.children = children;
 }
 
 export function remarkDocLinks(): (tree: Root) => void {
