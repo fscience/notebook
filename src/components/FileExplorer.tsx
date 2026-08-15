@@ -31,6 +31,7 @@ export default function FileExplorer({ projectId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<FileEntry | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<[number, number] | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
@@ -87,29 +88,155 @@ export default function FileExplorer({ projectId }: Props) {
     return idx > 0 ? rel.slice(0, idx) : "";
   }
 
-  async function handleUpload(files: FileList | File[]) {
-    const list = Array.from(files);
-    if (list.length === 0) return;
-    setUploading(true);
+  interface UploadItem {
+    name: string;
+    relpath: string;
+    data: ArrayBuffer;
+  }
+
+  async function filesFromDataTransfer(
+    dt: DataTransfer
+  ): Promise<{ files: UploadItem[]; dirs: string[] }> {
+    const files: UploadItem[] = [];
+    const dirs: string[] = [];
+    const items = Array.from(dt.items ?? []);
+    let handled = false;
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry?.();
+      if (!entry) continue;
+      handled = true;
+      await walkEntry(entry, "", files, dirs);
+    }
+    if (!handled) {
+      for (const f of Array.from(dt.files)) {
+        files.push({ name: f.name, relpath: "", data: await f.arrayBuffer() });
+      }
+    }
+    return { files, dirs };
+  }
+
+  function walkEntry(
+    entry: FileSystemEntry,
+    rel: string,
+    files: UploadItem[],
+    dirs: string[]
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (entry.isFile) {
+        (entry as FileSystemFileEntry).file(
+          async (file) => {
+            try {
+              files.push({
+                name: file.name,
+                relpath: dirOf(rel),
+                data: await file.arrayBuffer(),
+              });
+              resolve();
+            } catch (e) {
+              reject(e);
+            }
+          },
+          reject
+        );
+      } else if (entry.isDirectory) {
+        const base = rel || entry.name;
+        if (base) dirs.push(base);
+        const reader = (entry as FileSystemDirectoryEntry).createReader();
+        const readAll: () => void = () => {
+          reader.readEntries(
+            async (entries) => {
+              if (entries.length === 0) {
+                resolve();
+                return;
+              }
+              for (const e of entries) {
+                await walkEntry(
+                  e,
+                  base ? `${base}/${e.name}` : e.name,
+                  files,
+                  dirs
+                );
+              }
+              readAll();
+            },
+            reject
+          );
+        };
+        readAll();
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  async function handleUpload(source: DataTransfer | FileList | File[]) {
+    let items: UploadItem[] = [];
+    let dirs: string[] = [];
     try {
-      const fd = new FormData();
-      fd.append("path", path);
-      for (const f of list) {
-        fd.append("files", f);
-        fd.append("relpath", dirOf(f.webkitRelativePath));
+      if (source instanceof DataTransfer) {
+        const r = await filesFromDataTransfer(source);
+        items = r.files;
+        dirs = r.dirs;
+      } else {
+        const list = Array.from(source);
+        items = await Promise.all(
+          list.map(async (f) => ({
+            name: f.name,
+            relpath: dirOf(f.webkitRelativePath),
+            data: await f.arrayBuffer(),
+          }))
+        );
       }
-      const res = await fetch(`/api/projects/${projectId}/files`, {
-        method: "POST",
-        body: fd,
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || "上传失败");
+    } catch (e) {
+      alert(`读取拖入的文件失败: ${(e as Error).message}`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    if (items.length === 0 && dirs.length === 0) return;
+    setUploading(true);
+    setProgress([0, items.length + dirs.length]);
+    let failed = 0;
+    try {
+      let done = 0;
+      for (const { name, relpath, data } of items) {
+        setProgress([done, items.length + dirs.length]);
+        const fd = new FormData();
+        fd.append("path", path);
+        fd.append("files", new Blob([data]), name);
+        fd.append("relpath", relpath);
+        try {
+          const res = await fetch(`/api/projects/${projectId}/files`, {
+            method: "POST",
+            body: fd,
+          });
+          if (!res.ok) {
+            failed++;
+            const err = await res.json().catch(() => ({}));
+            console.warn(`上传 ${name} 失败:`, err.error || res.status);
+          }
+        } catch (e) {
+          failed++;
+          console.warn(`上传 ${name} 失败:`, e);
+        }
+        done++;
       }
-      setLoading(true);
-      await load();
+      for (const dir of dirs) {
+        const parent = dirOf(dir);
+        const dirName = dir.split("/").pop() ?? "";
+        setProgress([done, items.length + dirs.length]);
+        await fetch(`/api/projects/${projectId}/files/mkdir`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: parent, name: dirName }),
+        }).catch(() => {});
+        done++;
+      }
     } finally {
       setUploading(false);
+      setProgress(null);
+      if (failed > 0) alert(`有 ${failed} 个文件上传失败`);
+      setLoading(true);
+      await load();
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
@@ -138,7 +265,7 @@ export default function FileExplorer({ projectId }: Props) {
     e.preventDefault();
     dragDepth.current = 0;
     setDragging(false);
-    void handleUpload(e.dataTransfer.files);
+    void handleUpload(e.dataTransfer);
   }
 
   async function handleNewFolder() {
@@ -245,7 +372,12 @@ export default function FileExplorer({ projectId }: Props) {
           className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-[11px] text-white hover:opacity-90 disabled:opacity-50"
           title="上传文件到当前文件夹"
         >
-          <Upload className="h-3 w-3" /> {uploading ? "上传中..." : "上传"}
+          <Upload className="h-3 w-3" />{" "}
+          {uploading
+            ? progress
+              ? `上传中 ${progress[0] + 1}/${progress[1]}`
+              : "上传中..."
+            : "上传"}
         </button>
         <button
           onClick={() => void handleNewFolder()}
