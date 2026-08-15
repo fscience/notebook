@@ -20,6 +20,11 @@ export interface Cell {
   output?: CellOutput;
 }
 
+export interface Document {
+  name: string;
+  cells: Cell[];
+}
+
 export interface FileEntry {
   name: string;
   path: string;

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { extractDocLinks, ROOT_DOC_NAME } from "@/lib/wiki";
 
 export interface Project {
   id: string;
@@ -21,6 +22,11 @@ export interface Cell {
   type: "markdown" | "code";
   content: string;
   output?: CellOutput;
+}
+
+export interface Document {
+  name: string;
+  cells: Cell[];
 }
 
 export interface FileEntry {
@@ -102,7 +108,10 @@ export async function createProject(name: string): Promise<Project> {
     path.join(dir, "project.json"),
     JSON.stringify(project, null, 2)
   );
-  await fs.writeFile(path.join(dir, "content.json"), JSON.stringify({ cells: [] }));
+  await fs.writeFile(
+    path.join(dir, "content.json"),
+    JSON.stringify({ documents: [{ name: ROOT_DOC_NAME, cells: [] }] })
+  );
   return project;
 }
 
@@ -128,24 +137,71 @@ export async function deleteProject(id: string): Promise<void> {
   await fs.rm(projectDir(id), { recursive: true, force: true });
 }
 
-export async function getCells(id: string): Promise<Cell[]> {
+export async function getDocuments(id: string): Promise<Document[]> {
+  let docs: Document[] = [];
+  let changed = false;
   try {
     const raw = await fs.readFile(
       path.join(projectDir(id), "content.json"),
       "utf8"
     );
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed.cells) ? (parsed.cells as Cell[]) : [];
+    if (parsed && Array.isArray(parsed.documents)) {
+      docs = parsed.documents.filter(
+        (d: unknown): d is Document =>
+          !!d &&
+          typeof (d as Document).name === "string" &&
+          Array.isArray((d as Document).cells)
+      );
+    } else if (parsed && Array.isArray(parsed.cells)) {
+      docs = [{ name: ROOT_DOC_NAME, cells: parsed.cells as Cell[] }];
+      changed = true;
+    }
   } catch {
-    return [];
+    /* empty content.json */
   }
+  if (!docs.some((d) => d.name === ROOT_DOC_NAME)) {
+    docs = [{ name: ROOT_DOC_NAME, cells: [] }, ...docs];
+    changed = true;
+  }
+  if (changed) await saveDocuments(id, docs);
+  return docs;
 }
 
-export async function saveCells(id: string, cells: Cell[]): Promise<void> {
+export async function saveDocuments(
+  id: string,
+  docs: Document[]
+): Promise<void> {
   await fs.writeFile(
     path.join(projectDir(id), "content.json"),
-    JSON.stringify({ cells }, null, 2)
+    JSON.stringify({ documents: docs }, null, 2)
   );
+}
+
+function pruneOrphans(docs: Document[]): Document[] {
+  const referenced = new Set<string>([ROOT_DOC_NAME]);
+  for (const d of docs) {
+    for (const c of d.cells) {
+      if (c.type !== "markdown") continue;
+      for (const name of extractDocLinks(c.content)) referenced.add(name);
+    }
+  }
+  return docs.filter((d) => referenced.has(d.name));
+}
+
+export async function saveDocument(
+  id: string,
+  name: string,
+  cells: Cell[]
+): Promise<Document[]> {
+  const docs = await getDocuments(id);
+  const clean = String(name || "").trim() || ROOT_DOC_NAME;
+  const idx = docs.findIndex((d) => d.name === clean);
+  if (idx >= 0) docs[idx] = { name: clean, cells };
+  else docs.push({ name: clean, cells });
+  const pruned = pruneOrphans(docs);
+  await saveDocuments(id, pruned);
+  return pruned;
 }
 
 export async function listFiles(id: string, relPath = ""): Promise<FileEntry[]> {

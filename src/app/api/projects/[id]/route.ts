@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getProject,
-  getCells,
+  getDocuments,
   deleteProject,
   renameProject,
 } from "@/lib/storage";
@@ -13,8 +13,8 @@ export async function GET(
   try {
     const { id } = await params;
     const project = await getProject(id);
-    const cells = await getCells(id);
-    return NextResponse.json({ ...project, cells });
+    const documents = await getDocuments(id);
+    return NextResponse.json({ ...project, documents });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

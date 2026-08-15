@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { saveCells, type Cell } from "@/lib/storage";
+import { saveDocument, type Cell } from "@/lib/storage";
 
 export async function PUT(
   request: NextRequest,
@@ -7,7 +7,8 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    const body = await request.json().catch(() => ({ cells: [] }));
+    const body = await request.json().catch(() => ({}));
+    const name = typeof body.name === "string" ? body.name : "";
     const cells: Cell[] = Array.isArray(body.cells)
       ? body.cells.map((c: Cell) => ({
           id: String(c.id ?? crypto.randomUUID()),
@@ -16,8 +17,8 @@ export async function PUT(
           ...(c.output ? { output: c.output } : {}),
         }))
       : [];
-    await saveCells(id, cells);
-    return NextResponse.json({ ok: true });
+    const documents = await saveDocument(id, name, cells);
+    return NextResponse.json({ ok: true, documents });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

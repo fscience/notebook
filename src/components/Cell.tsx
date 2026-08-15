@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Cell as CellType, CellOutput } from "@/lib/types";
 import { highlightPython } from "@/lib/highlight";
+import { remarkDocLinks, docNameFromHref } from "@/lib/wiki";
 import {
   MarkdownIcon,
   Play,
@@ -23,6 +24,7 @@ interface Props {
   onRun: () => void;
   onInsert: (type: "markdown" | "code", position: "before" | "after") => void;
   onToggleOutput: (collapsed: boolean) => void;
+  onNavigate: (docName: string) => void;
 }
 
 function CellOutputView({
@@ -111,6 +113,7 @@ export default function Cell({
   onRun,
   onInsert,
   onToggleOutput,
+  onNavigate,
 }: Props) {
   const isCode = cell.type === "code";
   const [editing, setEditing] = useState(false);
@@ -226,7 +229,7 @@ export default function Cell({
         >
           {cell.content.trim() ? (
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={[remarkGfm, remarkDocLinks]}
               components={{
                 code({ className, children, ...props }) {
                   const lang = /language-([\w-]+)/.exec(className || "")?.[1];
@@ -244,6 +247,29 @@ export default function Cell({
                     <code className={className} {...props}>
                       {children}
                     </code>
+                  );
+                },
+                a({ href, children, ...props }) {
+                  const doc = typeof href === "string" ? docNameFromHref(href) : null;
+                  if (doc != null) {
+                    return (
+                      <a
+                        href={href}
+                        title={`打开文档：${doc}`}
+                        className="wiki-link"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onNavigate(doc);
+                        }}
+                      >
+                        {children}
+                      </a>
+                    );
+                  }
+                  return (
+                    <a href={href} {...props}>
+                      {children}
+                    </a>
                   );
                 },
               }}

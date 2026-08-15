@@ -155,6 +155,16 @@ body {
   text-decoration: underline;
 }
 
+.markdown-body a.wiki-link {
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  cursor: pointer;
+}
+
+.markdown-body a.wiki-link:hover {
+  border-bottom-style: solid;
+}
+
 .markdown-body ul,
 .markdown-body ol {
   margin: 0.5em 0;

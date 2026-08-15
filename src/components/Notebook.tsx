@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Cell as CellType, CellOutput } from "@/lib/types";
+import type {
+  Cell as CellType,
+  CellOutput,
+  Document,
+} from "@/lib/types";
 import Cell from "@/components/Cell";
-import { Plus } from "@/components/icons";
+import { Plus, ChevronLeft } from "@/components/icons";
+import { ROOT_DOC_NAME } from "@/lib/wiki";
 
 interface Props {
   projectId: string;
@@ -20,6 +25,8 @@ function makeId(): string {
 }
 
 export default function Notebook({ projectId, projectName }: Props) {
+  const [docs, setDocs] = useState<Document[]>([]);
+  const [currentDoc, setCurrentDoc] = useState<string>(ROOT_DOC_NAME);
   const [cells, setCells] = useState<CellType[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningIndex, setRunningIndex] = useState<number | null>(null);
@@ -27,10 +34,20 @@ export default function Notebook({ projectId, projectName }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cellsRef = useRef<CellType[]>([]);
+  const docsRef = useRef<Document[]>([]);
+  const currentDocRef = useRef<string>(ROOT_DOC_NAME);
 
   useEffect(() => {
     cellsRef.current = cells;
   }, [cells]);
+
+  useEffect(() => {
+    docsRef.current = docs;
+  }, [docs]);
+
+  useEffect(() => {
+    currentDocRef.current = currentDoc;
+  }, [currentDoc]);
 
   useEffect(() => {
     let alive = true;
@@ -38,7 +55,18 @@ export default function Notebook({ projectId, projectName }: Props) {
       .then((r) => r.json())
       .then((data) => {
         if (!alive) return;
-        setCells(Array.isArray(data.cells) ? data.cells : []);
+        const list = Array.isArray(data.documents) ? data.documents : [];
+        const root =
+          list.find((d: Document) => d.name === ROOT_DOC_NAME) ??
+          list[0] ??
+          null;
+        const rootCells = root ? root.cells : [];
+        docsRef.current = list;
+        setDocs(list);
+        cellsRef.current = rootCells;
+        setCells(rootCells);
+        currentDocRef.current = root ? root.name : ROOT_DOC_NAME;
+        setCurrentDoc(root ? root.name : ROOT_DOC_NAME);
       })
       .catch(() => {
         if (alive) setLoadError("加载项目失败");
@@ -51,15 +79,45 @@ export default function Notebook({ projectId, projectName }: Props) {
     };
   }, [projectId]);
 
+  function applySaveResponse(
+    documents: Document[] | undefined,
+    savedName: string
+  ) {
+    if (!Array.isArray(documents)) return;
+    docsRef.current = documents;
+    setDocs(documents);
+    if (savedName !== currentDocRef.current) return;
+    const cur = currentDocRef.current;
+    if (!documents.some((d) => d.name === cur)) {
+      const root =
+        documents.find((d) => d.name === ROOT_DOC_NAME) ?? documents[0];
+      if (root) {
+        currentDocRef.current = root.name;
+        setCurrentDoc(root.name);
+        cellsRef.current = root.cells;
+        setCells(root.cells);
+      }
+    }
+  }
+
   const save = useMemo(
     () => () => {
+      const savedName = currentDocRef.current;
       setSaveState("saving");
       fetch(`/api/projects/${projectId}/content`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cells: cellsRef.current }),
+        body: JSON.stringify({ name: savedName, cells: cellsRef.current }),
       })
-        .then((r) => (r.ok ? setSaveState("saved") : setSaveState("dirty")))
+        .then(async (r) => {
+          if (!r.ok) {
+            setSaveState("dirty");
+            return;
+          }
+          setSaveState("saved");
+          const data = await r.json().catch(() => ({}));
+          applySaveResponse(data.documents, savedName);
+        })
         .catch(() => setSaveState("dirty"));
     },
     [projectId]
@@ -72,7 +130,7 @@ export default function Notebook({ projectId, projectName }: Props) {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [cells, loading, save]);
+  }, [cells, currentDoc, loading, save]);
 
   useEffect(() => {
     return () => {
@@ -81,11 +139,35 @@ export default function Notebook({ projectId, projectName }: Props) {
         fetch(`/api/projects/${projectId}/content`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cells: cellsRef.current }),
+          body: JSON.stringify({
+            name: currentDocRef.current,
+            cells: cellsRef.current,
+          }),
         }).catch(() => {});
       }
     };
   }, [projectId]);
+
+  async function flushSave() {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    await save();
+  }
+
+  async function navigate(docName: string) {
+    const name = String(docName || "").trim() || ROOT_DOC_NAME;
+    if (name === currentDocRef.current) return;
+    await flushSave();
+    const existing = docsRef.current.find((d) => d.name === name);
+    const nextCells = existing ? existing.cells : [];
+    cellsRef.current = nextCells;
+    setCells(nextCells);
+    currentDocRef.current = name;
+    setCurrentDoc(name);
+    setSaveState("dirty");
+  }
 
   function updateCell(id: string, patch: Partial<CellType>) {
     setSaveState("dirty");
@@ -164,6 +246,11 @@ export default function Notebook({ projectId, projectName }: Props) {
         <h2 className="min-w-0 truncate text-sm font-semibold" title={projectName}>
           {projectName}
         </h2>
+        {currentDoc !== ROOT_DOC_NAME && (
+          <span className="shrink-0 truncate text-xs text-muted">
+            › {currentDoc}
+          </span>
+        )}
         <div className="flex-1" />
         <span
           className={`text-[11px] ${
@@ -233,11 +320,24 @@ export default function Notebook({ projectId, projectName }: Props) {
                   if (!cell.output) return;
                   updateCell(cell.id, { output: { ...cell.output, collapsed } });
                 }}
+                onNavigate={(name) => void navigate(name)}
               />
             ))}
           </div>
         )}
       </div>
+
+      {currentDoc !== ROOT_DOC_NAME && (
+        <div className="flex shrink-0 items-center justify-center border-t border-panel-border bg-panel-bg px-4 py-2">
+          <button
+            onClick={() => void navigate(ROOT_DOC_NAME)}
+            className="flex items-center gap-1 rounded bg-accent/10 px-3 py-1.5 text-xs text-accent hover:bg-accent/20"
+            title="返回首页"
+          >
+            <ChevronLeft className="h-3 w-3" /> 返回首页
+          </button>
+        </div>
+      )}
     </div>
   );
 }
