@@ -16,6 +16,7 @@
   --input: #ffffff;
   --code-label: #16a34a;
   --md-label: #2563eb;
+  --shell-label: #b45309;
   --code-out: #374151;
   --syntax-keyword: #7c3aed;
   --syntax-string: #16a34a;
@@ -47,6 +48,7 @@
     --input: #26262a;
     --code-label: #4ade80;
     --md-label: #60a5fa;
+    --shell-label: #fbbf24;
     --code-out: #d1d5db;
     --syntax-keyword: #c4b5fd;
     --syntax-string: #86efac;
@@ -78,6 +80,7 @@
   --color-input: var(--input);
   --color-code-label: var(--code-label);
   --color-md-label: var(--md-label);
+  --color-shell-label: var(--shell-label);
   --color-code-out: var(--code-out);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);

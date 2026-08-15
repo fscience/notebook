@@ -12,7 +12,8 @@ export async function PUT(
     const cells: Cell[] = Array.isArray(body.cells)
       ? body.cells.map((c: Cell) => ({
           id: String(c.id ?? crypto.randomUUID()),
-          type: c.type === "code" ? "code" : "markdown",
+          type:
+            c.type === "code" ? "code" : c.type === "shell" ? "shell" : "markdown",
           content: typeof c.content === "string" ? c.content : "",
           ...(c.output ? { output: c.output } : {}),
         }))

@@ -135,3 +135,11 @@ export function MarkdownIcon({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+export function TerminalIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className={className}>
+      <path d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-11Zm2.62 1.38a.75.75 0 0 0-1.24 1.24l1.5 1.5a.75.75 0 0 0 0 1.06l-1.5 1.5a.75.75 0 0 0 1.06 1.06l2-2a.75.75 0 0 0 0-1.06l-2-2Zm4.38.87a.75.75 0 0 0 0 1.5h3.5a.75.75 0 0 0 0-1.5H9Z" />
+    </svg>
+  );
+}

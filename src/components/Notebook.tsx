@@ -177,7 +177,7 @@ export default function Notebook({ projectId, projectName }: Props) {
   }
 
   function insertCell(
-    type: "markdown" | "code",
+    type: "markdown" | "code" | "shell",
     afterIndex: number | null
   ) {
     setSaveState("dirty");
@@ -187,7 +187,9 @@ export default function Notebook({ projectId, projectName }: Props) {
       content:
         type === "code"
           ? "# 在这里编写 Python 代码\n"
-          : "# 在这里编写 Markdown\n",
+          : type === "markdown"
+            ? "# 在这里编写 Markdown\n"
+            : "",
     };
     setCells((prev) => {
       const idx = afterIndex == null ? prev.length : afterIndex + 1;
@@ -277,6 +279,12 @@ export default function Notebook({ projectId, projectName }: Props) {
         >
           <Plus className="h-3 w-3" /> Python
         </button>
+        <button
+          onClick={() => insertCell("shell", null)}
+          className="flex items-center gap-1 rounded bg-warn/15 px-2 py-1 text-[11px] text-warn hover:bg-warn/25"
+        >
+          <Plus className="h-3 w-3" /> Shell
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -289,7 +297,7 @@ export default function Notebook({ projectId, projectName }: Props) {
             {cells.length === 0 && (
               <div className="rounded-lg border border-dashed border-panel-border p-8 text-center">
                 <p className="mb-4 text-sm text-muted">
-                  还没有内容，添加 Markdown 或 Python 单元格开始。
+                  还没有内容，添加 Markdown、Python 或 Shell 单元格开始。
                 </p>
                 <div className="flex justify-center gap-2">
                   <button
@@ -304,6 +312,12 @@ export default function Notebook({ projectId, projectName }: Props) {
                   >
                     + Python
                   </button>
+                  <button
+                    onClick={() => insertCell("shell", null)}
+                    className="rounded bg-warn/15 px-3 py-1.5 text-xs text-warn hover:bg-warn/25"
+                  >
+                    + Shell
+                  </button>
                 </div>
               </div>
             )}
@@ -311,6 +325,7 @@ export default function Notebook({ projectId, projectName }: Props) {
               <Cell
                 key={cell.id}
                 cell={cell}
+                projectId={projectId}
                 running={runningIndex === i}
                 onEdit={(content) => updateCell(cell.id, { content })}
                 onDelete={() => deleteCell(cell.id)}

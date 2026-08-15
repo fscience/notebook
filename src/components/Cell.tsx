@@ -14,15 +14,18 @@ import {
   Edit,
   ChevronDown,
   ChevronUp,
+  TerminalIcon,
 } from "@/components/icons";
+import ShellTerminal from "@/components/ShellTerminal";
 
 interface Props {
   cell: CellType;
+  projectId: string;
   running: boolean;
   onEdit: (content: string) => void;
   onDelete: () => void;
   onRun: () => void;
-  onInsert: (type: "markdown" | "code", position: "before" | "after") => void;
+  onInsert: (type: "markdown" | "code" | "shell", position: "before" | "after") => void;
   onToggleOutput: (collapsed: boolean) => void;
   onNavigate: (docName: string) => void;
 }
@@ -107,6 +110,7 @@ function CellOutputView({
 
 export default function Cell({
   cell,
+  projectId,
   running,
   onEdit,
   onDelete,
@@ -116,6 +120,7 @@ export default function Cell({
   onNavigate,
 }: Props) {
   const isCode = cell.type === "code";
+  const isShell = cell.type === "shell";
   const [editing, setEditing] = useState(false);
 
   const output = cell.output;
@@ -130,12 +135,20 @@ export default function Cell({
       <div className="flex items-center gap-1 border-b border-cell-border px-2 py-1">
         <span
           className={`flex items-center gap-1 text-[11px] font-medium ${
-            isCode ? "text-code-label" : "text-md-label"
+            isCode
+              ? "text-code-label"
+              : isShell
+                ? "text-shell-label"
+                : "text-md-label"
           }`}
         >
           {isCode ? (
             <>
               <Play className="h-3 w-3" /> Python
+            </>
+          ) : isShell ? (
+            <>
+              <TerminalIcon className="h-3 w-3" /> Shell
             </>
           ) : (
             <>
@@ -164,7 +177,7 @@ export default function Cell({
               </>
             )}
           </button>
-        ) : (
+        ) : isShell ? null : (
           <button
             onClick={() => setEditing((v) => !v)}
             className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted hover:bg-hover hover:text-foreground"
@@ -203,6 +216,8 @@ export default function Cell({
           </div>
           {output && <CellOutputView output={output} onToggle={onToggleOutput} />}
         </div>
+      ) : isShell ? (
+        <ShellTerminal projectId={projectId} cellId={cell.id} />
       ) : editing ? (
         <div>
           <textarea
@@ -296,6 +311,13 @@ export default function Cell({
           title="在此后插入 Python 单元格"
         >
           + Python
+        </button>
+        <button
+          onClick={() => onInsert("shell", "after")}
+          className="rounded px-2 py-0.5 text-[10px] text-muted hover:bg-hover hover:text-foreground"
+          title="在此后插入 Shell 单元格"
+        >
+          + Shell
         </button>
       </div>
     </div>

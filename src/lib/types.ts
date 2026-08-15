@@ -15,7 +15,7 @@ export interface CellOutput {
 
 export interface Cell {
   id: string;
-  type: "markdown" | "code";
+  type: "markdown" | "code" | "shell";
   content: string;
   output?: CellOutput;
 }

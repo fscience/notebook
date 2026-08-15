@@ -5,6 +5,7 @@ import {
   deleteProject,
   renameProject,
 } from "@/lib/storage";
+import { disposeProjectShellSessions } from "@/lib/shell";
 
 export async function GET(
   _req: NextRequest,
@@ -48,6 +49,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     await deleteProject(id);
+    disposeProjectShellSessions(id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
