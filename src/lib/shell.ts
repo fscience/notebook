@@ -22,12 +22,24 @@ export interface PtySession {
 export interface PtyStream {
   onData?: (text: string) => void;
   onExit?: () => void;
+  onCommands?: (commands: string[]) => void;
 }
 
 type ControlChannel = { writable?: boolean; write(data: string): unknown };
 
-const sessions = new Map<string, { session: PtySession; stream: PtyStream }>();
+interface SessionEntry {
+  session: PtySession;
+  stream: PtyStream;
+  commands: string[];
+  pending: string;
+  inEscape: boolean;
+  escBuf: string;
+}
+
+const sessions = new Map<string, SessionEntry>();
 const pendingAttach = new Map<string, Promise<PtySession>>();
+
+const COMMAND_LOG_LIMIT = 200;
 
 const PYPROXY_VERSION = "2";
 const PYPROXY_SRC = String.raw`import os, sys, struct, fcntl, termios, pty, select, time
@@ -147,10 +159,51 @@ function stateFor(id: string, cellId: string) {
     entry = {
       session: {} as PtySession,
       stream: {},
+      commands: [],
+      pending: "",
+      inEscape: false,
+      escBuf: "",
     };
     sessions.set(key, entry);
   }
   return entry;
+}
+
+function trackInput(entry: SessionEntry, data: string) {
+  for (const ch of data) {
+    if (ch === "\r" || ch === "\n") {
+      const line = entry.pending.trim();
+      entry.pending = "";
+      if (line) {
+        entry.commands.push(line);
+        if (entry.commands.length > COMMAND_LOG_LIMIT) entry.commands.shift();
+        entry.stream.onCommands?.(entry.commands);
+      }
+    } else if (ch === "\x7f" || ch === "\b") {
+      if (entry.inEscape) entry.inEscape = false;
+      else entry.pending = entry.pending.slice(0, -1);
+    } else if (ch === "\x1b") {
+      entry.inEscape = true;
+      entry.escBuf = "";
+    } else if (entry.inEscape) {
+      entry.escBuf += ch;
+      if (entry.escBuf.startsWith("]")) {
+        if (ch === "\x07" || ch === "\\") entry.inEscape = false;
+      } else if (entry.escBuf.startsWith("[")) {
+        if (entry.escBuf.length > 1 && /[\x40-\x7e]/.test(ch)) {
+          entry.inEscape = false;
+        }
+      } else if (/[\x40-\x7e]/.test(ch)) {
+        entry.inEscape = false;
+      }
+    } else if (ch === "\t" || ch.codePointAt(0)! >= 0x20) {
+      entry.pending += ch;
+    }
+  }
+}
+
+export function getLiveCommands(id: string, cellId: string): string[] {
+  return sessions.get(sessionKey(id, cellId))?.commands ?? [];
 }
 
 export function attachShell(id: string, cellId: string): Promise<PtySession> {
@@ -228,7 +281,10 @@ async function doAttach(id: string, cellId: string, key: string): Promise<PtySes
     root,
     alive: true,
     write(data) {
-      if (child.stdin?.writable) child.stdin.write(data);
+      if (child.stdin?.writable) {
+        child.stdin.write(data);
+        trackInput(entry, data);
+      }
     },
     resize(cols, rows) {
       const c = Math.max(2, Math.floor(cols) || 80);
@@ -277,6 +333,8 @@ async function histfilePath(id: string, cellId: string): Promise<string> {
 }
 
 export async function getShellHistory(id: string, cellId?: string): Promise<string[]> {
+  const live = getLiveCommands(id, safeCell(cellId ?? ""));
+  if (live.length > 0) return [...live];
   try {
     const raw = await fs.readFile(await histfilePath(id, safeCell(cellId)), "utf8");
     return raw
@@ -290,8 +348,11 @@ export async function getShellHistory(id: string, cellId?: string): Promise<stri
 }
 
 export async function clearShellHistory(id: string, cellId?: string): Promise<void> {
+  const clean = safeCell(cellId);
+  const entry = sessions.get(sessionKey(id, clean));
+  if (entry) entry.commands = [];
   try {
-    await fs.rm(await histfilePath(id, safeCell(cellId)), { force: true });
+    await fs.rm(await histfilePath(id, clean), { force: true });
   } catch {
     /* ignore */
   }

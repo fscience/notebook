@@ -4,7 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { Refresh, Trash } from "@/components/icons";
+import { Refresh, Trash, ChevronDown, ChevronUp } from "@/components/icons";
 
 interface ShellTerminalProps {
   projectId: string;
@@ -12,10 +12,11 @@ interface ShellTerminalProps {
 }
 
 interface StreamEvent {
-  type: "stdout" | "cwd" | "exit" | "error";
+  type: "stdout" | "cwd" | "exit" | "error" | "commands";
   text?: string;
   cwd?: string;
   root?: string;
+  commands?: string[];
 }
 
 const PALETTES: Record<"dark" | "light", { background: string; foreground: string }> = {
@@ -40,6 +41,8 @@ export default function ShellTerminal({
   const [connected, setConnected] = useState(false);
   const [cwd, setCwd] = useState("");
   const [error, setError] = useState("");
+  const [commands, setCommands] = useState<string[]>([]);
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const [resetKey, setResetKey] = useState(0);
 
   const sendInput = useCallback(
@@ -215,6 +218,8 @@ export default function ShellTerminal({
               if (typeof ev.root === "string") rootRef.current = ev.root;
             } else if (ev.type === "error") {
               if (alive) setError(ev.text || "终端错误");
+            } else if (ev.type === "commands") {
+              if (Array.isArray(ev.commands)) setCommands(ev.commands);
             } else if (ev.type === "exit") {
               gotExit = true;
               setConnected(false);
@@ -257,6 +262,7 @@ export default function ShellTerminal({
       `/api/projects/${projectId}/shell/history?cell=${encodeURIComponent(cellId)}`,
       { method: "DELETE" }
     ).catch(() => {});
+    setCommands([]);
   }
 
   function handleReset() {
@@ -311,6 +317,31 @@ export default function ShellTerminal({
         className="h-60 overflow-hidden bg-white p-1 dark:bg-cell-bg"
         onClick={() => termRef.current?.focus()}
       />
+
+      {commands.length > 0 && (
+        <div className="border-t border-cell-border">
+          <button
+            onClick={() => setHistoryCollapsed((v) => !v)}
+            className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] text-muted transition hover:bg-hover hover:text-foreground"
+            title={historyCollapsed ? "展开输出" : "收起输出"}
+          >
+            {historyCollapsed ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronUp className="h-3 w-3" />
+            )}
+            <span className="font-medium text-foreground">输出</span>
+            <span>{commands.length} 条命令</span>
+            <span className="flex-1" />
+            <span>{historyCollapsed ? "展开" : "收起"}</span>
+          </button>
+          {!historyCollapsed && (
+            <pre className="whitespace-pre-wrap break-words px-3 py-2 font-mono text-[12px] leading-relaxed text-code-out">
+              {commands.map((c) => `$ ${c}`).join("\n")}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   );
 }

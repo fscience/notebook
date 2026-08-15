@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server";
-import { attachShell, currentStream, setStream } from "@/lib/shell";
+import {
+  attachShell,
+  currentStream,
+  getLiveCommands,
+  setStream,
+} from "@/lib/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -66,9 +71,11 @@ export async function GET(
       push({ type: "exit" });
       finish();
     },
+    onCommands: (commands) => push({ type: "commands", commands }),
   });
 
   push({ type: "cwd", cwd: session.cwd, root: session.root });
+  push({ type: "commands", commands: getLiveCommands(id, cellId) });
 
   const stream = new ReadableStream<Uint8Array>({
     pull(controller) {
