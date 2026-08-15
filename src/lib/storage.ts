@@ -37,8 +37,48 @@ export interface FileEntry {
   mtime: string;
 }
 
-export const DATA_ROOT = path.join(process.cwd(), "data");
-export const PROJECTS_ROOT = path.join(DATA_ROOT, "projects");
+export const DEFAULT_DATA_ROOT = path.join(process.cwd(), "data");
+const SETTINGS_FILE = path.join(DEFAULT_DATA_ROOT, "settings.json");
+
+export interface Settings {
+  dataRoot?: string;
+}
+
+export async function getSettings(): Promise<Settings> {
+  try {
+    const raw = await fs.readFile(SETTINGS_FILE, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      const dataRoot = (parsed as Settings).dataRoot;
+      if (typeof dataRoot === "string" && dataRoot.trim()) {
+        return { dataRoot: dataRoot.trim() };
+      }
+    }
+  } catch {
+    /* no settings yet */
+  }
+  return {};
+}
+
+export async function saveSettings(settings: Settings): Promise<void> {
+  await fs.mkdir(DEFAULT_DATA_ROOT, { recursive: true });
+  const next: Settings = {
+    dataRoot:
+      settings.dataRoot && settings.dataRoot.trim()
+        ? path.resolve(settings.dataRoot.trim())
+        : undefined,
+  };
+  await fs.writeFile(SETTINGS_FILE, JSON.stringify(next, null, 2));
+}
+
+export async function getDataRoot(): Promise<string> {
+  const settings = await getSettings();
+  return settings.dataRoot || DEFAULT_DATA_ROOT;
+}
+
+export async function getProjectsRoot(): Promise<string> {
+  return path.join(await getDataRoot(), "projects");
+}
 
 export function ensureProjectId(id: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(id)) {
@@ -57,16 +97,19 @@ function slugify(name: string): string {
   return slug || "project";
 }
 
-export function projectDir(id: string): string {
-  return path.join(PROJECTS_ROOT, ensureProjectId(id));
+export async function projectDir(id: string): Promise<string> {
+  return path.join(await getProjectsRoot(), ensureProjectId(id));
 }
 
-export function projectFilesDir(id: string): string {
-  return path.join(projectDir(id), "files");
+export async function projectFilesDir(id: string): Promise<string> {
+  return path.join(await projectDir(id), "files");
 }
 
-export function resolveFilePath(id: string, relPath = ""): string {
-  const base = path.resolve(projectFilesDir(id));
+export async function resolveFilePath(
+  id: string,
+  relPath = ""
+): Promise<string> {
+  const base = path.resolve(await projectFilesDir(id));
   const clean = String(relPath || "").replace(/^\/+|\/+$/g, "");
   const target = path.resolve(base, clean);
   if (target !== base && !target.startsWith(base + path.sep)) {
@@ -76,14 +119,15 @@ export function resolveFilePath(id: string, relPath = ""): string {
 }
 
 export async function listProjects(): Promise<Project[]> {
-  await fs.mkdir(PROJECTS_ROOT, { recursive: true });
-  const entries = await fs.readdir(PROJECTS_ROOT, { withFileTypes: true });
+  const root = await getProjectsRoot();
+  await fs.mkdir(root, { recursive: true });
+  const entries = await fs.readdir(root, { withFileTypes: true });
   const projects: Project[] = [];
   for (const e of entries) {
     if (!e.isDirectory()) continue;
     try {
       const raw = await fs.readFile(
-        path.join(PROJECTS_ROOT, e.name, "project.json"),
+        path.join(root, e.name, "project.json"),
         "utf8"
       );
       projects.push(JSON.parse(raw) as Project);
@@ -96,9 +140,9 @@ export async function listProjects(): Promise<Project[]> {
 
 export async function createProject(name: string): Promise<Project> {
   const id = `${slugify(name)}-${Date.now().toString(36)}`;
-  const dir = projectDir(id);
+  const dir = await projectDir(id);
   await fs.mkdir(dir, { recursive: true });
-  await fs.mkdir(projectFilesDir(id), { recursive: true });
+  await fs.mkdir(await projectFilesDir(id), { recursive: true });
   const project: Project = {
     id,
     name: name.trim() || "未命名项目",
@@ -117,7 +161,7 @@ export async function createProject(name: string): Promise<Project> {
 
 export async function getProject(id: string): Promise<Project> {
   const raw = await fs.readFile(
-    path.join(projectDir(id), "project.json"),
+    path.join(await projectDir(id), "project.json"),
     "utf8"
   );
   return JSON.parse(raw) as Project;
@@ -125,7 +169,7 @@ export async function getProject(id: string): Promise<Project> {
 
 export async function renameProject(id: string, name: string): Promise<Project> {
   const clean = name.trim() || "未命名项目";
-  const file = path.join(projectDir(id), "project.json");
+  const file = path.join(await projectDir(id), "project.json");
   const raw = await fs.readFile(file, "utf8");
   const project = JSON.parse(raw) as Project;
   project.name = clean;
@@ -134,7 +178,7 @@ export async function renameProject(id: string, name: string): Promise<Project> 
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  await fs.rm(projectDir(id), { recursive: true, force: true });
+  await fs.rm(await projectDir(id), { recursive: true, force: true });
 }
 
 export async function getDocuments(id: string): Promise<Document[]> {
@@ -142,7 +186,7 @@ export async function getDocuments(id: string): Promise<Document[]> {
   let changed = false;
   try {
     const raw = await fs.readFile(
-      path.join(projectDir(id), "content.json"),
+      path.join(await projectDir(id), "content.json"),
       "utf8"
     );
     const parsed = JSON.parse(raw);
@@ -173,7 +217,7 @@ export async function saveDocuments(
   docs: Document[]
 ): Promise<void> {
   await fs.writeFile(
-    path.join(projectDir(id), "content.json"),
+    path.join(await projectDir(id), "content.json"),
     JSON.stringify({ documents: docs }, null, 2)
   );
 }
@@ -205,7 +249,7 @@ export async function saveDocument(
 }
 
 export async function listFiles(id: string, relPath = ""): Promise<FileEntry[]> {
-  const dir = resolveFilePath(id, relPath);
+  const dir = await resolveFilePath(id, relPath);
   const st = await fs.stat(dir);
   if (!st.isDirectory()) throw new Error("Not a directory");
   const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -244,13 +288,13 @@ export async function makeDir(
     .trim()
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_");
   if (!clean) throw new Error("文件夹名称无效");
-  const parent = resolveFilePath(id, relPath);
+  const parent = await resolveFilePath(id, relPath);
   await fs.mkdir(path.join(parent, clean));
 }
 
 export async function removeEntry(id: string, relPath: string): Promise<void> {
-  const target = resolveFilePath(id, relPath);
-  if (target === path.resolve(projectFilesDir(id))) {
+  const target = await resolveFilePath(id, relPath);
+  if (target === path.resolve(await projectFilesDir(id))) {
     throw new Error("不能删除项目根目录");
   }
   await fs.rm(target, { recursive: true, force: true });
@@ -268,13 +312,13 @@ export async function saveUploadedFile(
     .trim();
   if (!clean) throw new Error("文件名无效");
   const sub = String(subpath || "").replace(/^\/+|\/+$/g, "");
-  const dir = resolveFilePath(id, sub ? `${relPath}/${sub}` : relPath);
+  const dir = await resolveFilePath(id, sub ? `${relPath}/${sub}` : relPath);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, clean), buffer);
 }
 
 export async function fileMeta(id: string, relPath: string) {
-  const target = resolveFilePath(id, relPath);
+  const target = await resolveFilePath(id, relPath);
   const st = await fs.stat(target);
   if (st.isDirectory()) throw new Error("Is a directory");
   return { target, size: st.size };

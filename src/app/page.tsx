@@ -6,7 +6,8 @@ import ProjectList from "@/components/ProjectList";
 import Notebook from "@/components/Notebook";
 import FileExplorer from "@/components/FileExplorer";
 import EnvPanel from "@/components/EnvPanel";
-import { ChevronLeft, ChevronRight } from "@/components/icons";
+import SettingsModal from "@/components/SettingsModal";
+import { ChevronLeft, ChevronRight, Gear } from "@/components/icons";
 
 const MIN_RIGHT_WIDTH = 200;
 
@@ -19,6 +20,7 @@ export default function Home() {
   const [rightWidth, setRightWidth] = useState(288);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [draggingRight, setDraggingRight] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const rightDragRef = useRef<{ startX: number; startWidth: number } | null>(
     null
   );
@@ -148,6 +150,14 @@ export default function Home() {
             onRename={handleRename}
             loading={loadingProjects}
           />
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="flex shrink-0 items-center gap-2 border-t border-panel-border px-3 py-2 text-xs text-muted hover:bg-hover hover:text-foreground"
+            title="设置"
+          >
+            <Gear className="h-3.5 w-3.5" />
+            设置
+          </button>
         </aside>
       )}
 
@@ -258,6 +268,12 @@ export default function Home() {
           )}
         </div>
       </main>
+
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={loadProjects}
+      />
     </div>
   );
 }

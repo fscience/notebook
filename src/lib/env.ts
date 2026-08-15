@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { projectDir, DATA_ROOT } from "./storage";
+import { projectDir, getDataRoot } from "./storage";
 
 export interface ExecResult {
   stdout: string;
@@ -18,22 +18,22 @@ export interface PackageInfo {
 
 export const PYTHON_VERSION = "3.12";
 
-function pythonInstallDir(): string {
-  return path.join(DATA_ROOT, "pythons");
+async function pythonInstallDir(): Promise<string> {
+  return path.join(await getDataRoot(), "pythons");
 }
 
-export function venvDir(id: string): string {
-  return path.join(projectDir(id), ".venv");
+export async function venvDir(id: string): Promise<string> {
+  return path.join(await projectDir(id), ".venv");
 }
 
-export function venvPython(id: string): string {
-  return path.join(venvDir(id), "bin", "python");
+export async function venvPython(id: string): Promise<string> {
+  return path.join(await venvDir(id), "bin", "python");
 }
 
 function exec(
   cmd: string,
   args: string[],
-  opts: { cwd: string; timeout?: number }
+  opts: { cwd: string; timeout?: number; pythonInstallDir?: string }
 ): Promise<ExecResult> {
   const timeoutMs = opts.timeout ?? 120000;
   return new Promise((resolve) => {
@@ -42,7 +42,7 @@ function exec(
       env: {
         ...process.env,
         UV_NO_PROGRESS: "1",
-        UV_PYTHON_INSTALL_DIR: pythonInstallDir(),
+        UV_PYTHON_INSTALL_DIR: opts.pythonInstallDir ?? "",
         NO_COLOR: "1",
       },
     });
@@ -78,18 +78,21 @@ function exec(
 }
 
 export async function ensureEnv(id: string): Promise<string> {
-  const py = venvPython(id);
+  const py = await venvPython(id);
   try {
     await fs.access(py);
     return py;
   } catch {
-    const dir = venvDir(id);
-    await fs.mkdir(projectDir(id), { recursive: true });
-    await fs.mkdir(pythonInstallDir(), { recursive: true });
-    const res = await exec("uv", ["venv", "--python", PYTHON_VERSION, dir], {
-      cwd: projectDir(id),
-      timeout: 120000,
-    });
+    const dir = await venvDir(id);
+    const pdir = await projectDir(id);
+    const pyDir = await pythonInstallDir();
+    await fs.mkdir(pdir, { recursive: true });
+    await fs.mkdir(pyDir, { recursive: true });
+    const res = await exec(
+      "uv",
+      ["venv", "--python", PYTHON_VERSION, dir],
+      { cwd: pdir, pythonInstallDir: pyDir, timeout: 120000 }
+    );
     if (res.error) {
       throw new Error(`无法启动 uv: ${res.error}`);
     }
@@ -104,7 +107,8 @@ export async function envStatus(id: string): Promise<{
   exists: boolean;
   pythonVersion: string;
 }> {
-  const py = venvPython(id);
+  const py = await venvPython(id);
+  const pdir = await projectDir(id);
   try {
     await fs.access(py);
   } catch {
@@ -113,7 +117,7 @@ export async function envStatus(id: string): Promise<{
   const res = await exec(
     py,
     ["-c", "import platform; print(platform.python_version())"],
-    { cwd: projectDir(id), timeout: 30000 }
+    { cwd: pdir, pythonInstallDir: await pythonInstallDir(), timeout: 30000 }
   );
   return {
     exists: true,
@@ -150,7 +154,7 @@ export async function installPackages(
   return exec(
     "uv",
     ["pip", "install", "--python", py, ...packages],
-    { cwd: projectDir(id), timeout: 300000 }
+    { cwd: await projectDir(id), pythonInstallDir: await pythonInstallDir(), timeout: 300000 }
   );
 }
 
@@ -163,7 +167,7 @@ export async function uninstallPackages(
   return exec(
     "uv",
     ["pip", "uninstall", "--python", py, ...packages],
-    { cwd: projectDir(id), timeout: 120000 }
+    { cwd: await projectDir(id), pythonInstallDir: await pythonInstallDir(), timeout: 120000 }
   );
 }
 
@@ -172,7 +176,7 @@ export async function listPackages(id: string): Promise<PackageInfo[]> {
   const res = await exec(
     "uv",
     ["pip", "list", "--python", py, "--format", "json"],
-    { cwd: projectDir(id), timeout: 60000 }
+    { cwd: await projectDir(id), pythonInstallDir: await pythonInstallDir(), timeout: 60000 }
   );
   if (res.error) throw new Error(`无法启动 uv: ${res.error}`);
   if ((res.code ?? 1) !== 0) {

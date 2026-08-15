@@ -21,7 +21,7 @@ export async function POST(
 
     const pythonPath = await ensureEnv(id);
     const result: PythonResult = await runPython(allCode, {
-      cwd: projectFilesDir(id),
+      cwd: await projectFilesDir(id),
       pythonPath,
     });
 

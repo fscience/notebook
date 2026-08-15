@@ -120,6 +120,14 @@ export function Edit({ className = "" }: { className?: string }) {
   );
 }
 
+export function Gear({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className={className}>
+      <path d="M6.75.25a1 1 0 0 1 2.5 0l.28.9a6.02 6.02 0 0 1 2.16 1.25l.94-.14a1 1 0 0 1 1.06 1.06l-.14.94c.87.6 1.6 1.39 2.1 2.31l.9.28a1 1 0 0 1 0 2.5l-.9.28a6 6 0 0 1-2.1 2.31l.14.94a1 1 0 0 1-1.06 1.06l-.94-.14a6.02 6.02 0 0 1-2.16 1.25l-.28.9a1 1 0 0 1-2.5 0l-.28-.9a6.02 6.02 0 0 1-2.16-1.25l-.94.14a1 1 0 0 1-1.06-1.06l.14-.94a6.02 6.02 0 0 1-2.1-2.31l-.9-.28a1 1 0 0 1 0-2.5l.9-.28a6.02 6.02 0 0 1 2.1-2.31l-.14-.94a1 1 0 0 1 1.06-1.06l.94.14A6.02 6.02 0 0 1 6.47 1.15l.28-.9ZM8 5.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5Z" />
+    </svg>
+  );
+}
+
 export function MarkdownIcon({ className = "" }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="currentColor" className={className}>
