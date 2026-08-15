@@ -17,6 +17,17 @@
   --code-label: #16a34a;
   --md-label: #2563eb;
   --code-out: #374151;
+  --syntax-keyword: #7c3aed;
+  --syntax-string: #16a34a;
+  --syntax-number: #0d9488;
+  --syntax-comment: #9ca3af;
+  --syntax-function: #2563eb;
+  --syntax-class: #d97706;
+  --syntax-builtin: #0f766e;
+  --syntax-boolean: #dc2626;
+  --syntax-operator: #6b7280;
+  --syntax-punctuation: #6b7280;
+  --syntax-decorator: #9333ea;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,6 +48,17 @@
     --code-label: #4ade80;
     --md-label: #60a5fa;
     --code-out: #d1d5db;
+    --syntax-keyword: #c4b5fd;
+    --syntax-string: #86efac;
+    --syntax-number: #5eead4;
+    --syntax-comment: #6b7280;
+    --syntax-function: #93c5fd;
+    --syntax-class: #fdba74;
+    --syntax-builtin: #2dd4bf;
+    --syntax-boolean: #fca5a5;
+    --syntax-operator: #9ca3af;
+    --syntax-punctuation: #9ca3af;
+    --syntax-decorator: #d8b4fe;
   }
 }
 
@@ -208,4 +230,104 @@ body {
   border: none;
   border-top: 1px solid var(--panel-border);
   margin: 1em 0;
+}
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+
+.token.string,
+.token.char {
+  color: var(--syntax-string);
+}
+
+.token.number,
+.token.hexcode,
+.token.regex {
+  color: var(--syntax-number);
+}
+
+.token.keyword,
+.token.boolean,
+.token.constant,
+.token.symbol {
+  color: var(--syntax-keyword);
+}
+
+.token.function,
+.token.parameter {
+  color: var(--syntax-function);
+}
+
+.token.class-name {
+  color: var(--syntax-class);
+}
+
+.token.builtin,
+.token.attr-name {
+  color: var(--syntax-builtin);
+}
+
+.token.operator {
+  color: var(--syntax-operator);
+}
+
+.token.punctuation {
+  color: var(--syntax-punctuation);
+}
+
+.token.decorator,
+.token.function-variable {
+  color: var(--syntax-decorator);
+}
+
+.code-editor {
+  position: relative;
+  display: grid;
+  min-height: 100px;
+}
+
+.code-editor-pre,
+.code-editor-input {
+  grid-area: 1 / 1;
+  margin: 0;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.code-editor-pre {
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.code-editor-input {
+  resize: none;
+  overflow: hidden;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--foreground);
+  outline: none;
+}
+
+.code-editor-input::selection,
+.code-editor-input *::selection {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.code-editor-input::placeholder {
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+  opacity: 0.7;
 }

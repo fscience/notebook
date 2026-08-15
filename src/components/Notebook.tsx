@@ -229,6 +229,10 @@ export default function Notebook({ projectId, projectName }: Props) {
                 onDelete={() => deleteCell(cell.id)}
                 onRun={() => void runCell(i)}
                 onInsert={(type) => insertCell(type, i)}
+                onToggleOutput={(collapsed) => {
+                  if (!cell.output) return;
+                  updateCell(cell.id, { output: { ...cell.output, collapsed } });
+                }}
               />
             ))}
           </div>

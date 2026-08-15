@@ -10,6 +10,7 @@ export interface CellOutput {
   error?: string;
   timedOut?: boolean;
   images?: { name: string; data: string; mime: string }[];
+  collapsed?: boolean;
 }
 
 export interface Cell {
