@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProject, getCells, deleteProject } from "@/lib/storage";
+import {
+  getProject,
+  getCells,
+  deleteProject,
+  renameProject,
+} from "@/lib/storage";
 
 export async function GET(
   _req: NextRequest,
@@ -10,6 +15,24 @@ export async function GET(
     const project = await getProject(id);
     const cells = await getCells(id);
     return NextResponse.json({ ...project, cells });
+  } catch (err) {
+    return NextResponse.json(
+      { error: (err as Error).message },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json().catch(() => ({}));
+    const name = typeof body.name === "string" ? body.name : "";
+    const project = await renameProject(id, name);
+    return NextResponse.json(project);
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

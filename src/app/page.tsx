@@ -74,6 +74,24 @@ export default function Home() {
     });
   }
 
+  async function handleRename(id: string, name: string) {
+    const clean = name.trim();
+    if (!clean) return;
+    const res = await fetch(`/api/projects/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: clean }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || "重命名项目失败");
+      return;
+    }
+    setProjects((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, name: clean } : p))
+    );
+  }
+
   function startRightDrag(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault();
     rightDragRef.current = { startX: e.clientX, startWidth: rightWidth };
@@ -127,6 +145,7 @@ export default function Home() {
             onSelect={setSelectedId}
             onCreate={handleCreate}
             onDelete={handleDelete}
+            onRename={handleRename}
             loading={loadingProjects}
           />
         </aside>

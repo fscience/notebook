@@ -114,6 +114,16 @@ export async function getProject(id: string): Promise<Project> {
   return JSON.parse(raw) as Project;
 }
 
+export async function renameProject(id: string, name: string): Promise<Project> {
+  const clean = name.trim() || "未命名项目";
+  const file = path.join(projectDir(id), "project.json");
+  const raw = await fs.readFile(file, "utf8");
+  const project = JSON.parse(raw) as Project;
+  project.name = clean;
+  await fs.writeFile(file, JSON.stringify(project, null, 2));
+  return project;
+}
+
 export async function deleteProject(id: string): Promise<void> {
   await fs.rm(projectDir(id), { recursive: true, force: true });
 }

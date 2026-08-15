@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Project } from "@/lib/types";
-import { Plus, Trash } from "@/components/icons";
+import { Plus, Trash, Edit } from "@/components/icons";
 
 interface Props {
   projects: Project[];
@@ -10,6 +10,7 @@ interface Props {
   onSelect: (id: string) => void;
   onCreate: (name: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onRename: (id: string, name: string) => Promise<void>;
   loading: boolean;
 }
 
@@ -19,11 +20,15 @@ export default function ProjectList({
   onSelect,
   onCreate,
   onDelete,
+  onRename,
   loading,
 }: Props) {
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const cancelRenameRef = useRef(false);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -44,6 +49,24 @@ export default function ProjectList({
     } else {
       setConfirmId(id);
     }
+  }
+
+  function startRename(id: string, current: string) {
+    setEditingId(id);
+    setEditName(current);
+  }
+
+  async function finishRename() {
+    if (editingId == null) return;
+    const id = editingId;
+    setEditingId(null);
+    if (cancelRenameRef.current) {
+      cancelRenameRef.current = false;
+      return;
+    }
+    const clean = editName.trim();
+    if (!clean || clean === projects.find((p) => p.id === id)?.name) return;
+    await onRename(id, clean);
   }
 
   return (
@@ -80,10 +103,47 @@ export default function ProjectList({
                   : "text-foreground hover:bg-hover"
               }`}
               onClick={() => onSelect(p.id)}
+              title="双击重命名"
             >
-              <span className="min-w-0 flex-1 truncate" title={p.name}>
-                {p.name}
-              </span>
+              {editingId === p.id ? (
+                <input
+                  autoFocus
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") void finishRename();
+                    else if (e.key === "Escape") {
+                      cancelRenameRef.current = true;
+                      setEditingId(null);
+                    }
+                  }}
+                  onBlur={() => void finishRename()}
+                  className="min-w-0 flex-1 rounded border border-accent bg-input px-1.5 py-0.5 text-sm outline-none"
+                />
+              ) : (
+                <span
+                  className="min-w-0 flex-1 truncate"
+                  title={p.name}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    startRename(p.id, p.name);
+                  }}
+                >
+                  {p.name}
+                </span>
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startRename(p.id, p.name);
+                }}
+                className="ml-1 rounded p-1 text-muted hover:bg-accent/15 hover:text-accent"
+                title="重命名"
+              >
+                <Edit className="h-3.5 w-3.5" />
+              </button>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
