@@ -259,6 +259,7 @@ export async function removeEntry(id: string, relPath: string): Promise<void> {
 export async function saveUploadedFile(
   id: string,
   relPath: string,
+  subpath: string,
   name: string,
   buffer: Buffer
 ): Promise<void> {
@@ -266,7 +267,9 @@ export async function saveUploadedFile(
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
     .trim();
   if (!clean) throw new Error("文件名无效");
-  const dir = resolveFilePath(id, relPath);
+  const sub = String(subpath || "").replace(/^\/+|\/+$/g, "");
+  const dir = resolveFilePath(id, sub ? `${relPath}/${sub}` : relPath);
+  await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, clean), buffer);
 }
 

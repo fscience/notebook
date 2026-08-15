@@ -33,10 +33,13 @@ export async function POST(
       return NextResponse.json({ error: "没有上传任何文件" }, { status: 400 });
     }
     const saved: string[] = [];
-    for (const file of files) {
+    const relpaths = form.getAll("relpath").map(String);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const sub = relpaths[i] ?? "";
       const buf = Buffer.from(await file.arrayBuffer());
-      await saveUploadedFile(id, relPath, file.name, buf);
-      saved.push(file.name);
+      await saveUploadedFile(id, relPath, sub, file.name, buf);
+      saved.push(sub ? `${sub}/${file.name}` : file.name);
     }
     return NextResponse.json({ ok: true, saved }, { status: 201 });
   } catch (err) {

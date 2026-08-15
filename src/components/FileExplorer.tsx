@@ -31,7 +31,9 @@ export default function FileExplorer({ projectId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<FileEntry | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +56,16 @@ export default function FileExplorer({ projectId }: Props) {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const prevent = (e: DragEvent) => e.preventDefault();
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
+    };
+  }, []);
+
   function navTo(p: string) {
     setLoading(true);
     setPath(p);
@@ -70,13 +82,22 @@ export default function FileExplorer({ projectId }: Props) {
     void load();
   }
 
-  async function handleUpload(files: FileList | null) {
-    if (!files || files.length === 0) return;
+  function dirOf(rel: string): string {
+    const idx = rel.lastIndexOf("/");
+    return idx > 0 ? rel.slice(0, idx) : "";
+  }
+
+  async function handleUpload(files: FileList | File[]) {
+    const list = Array.from(files);
+    if (list.length === 0) return;
     setUploading(true);
     try {
       const fd = new FormData();
       fd.append("path", path);
-      for (const f of Array.from(files)) fd.append("files", f);
+      for (const f of list) {
+        fd.append("files", f);
+        fd.append("relpath", dirOf(f.webkitRelativePath));
+      }
       const res = await fetch(`/api/projects/${projectId}/files`, {
         method: "POST",
         body: fd,
@@ -91,6 +112,33 @@ export default function FileExplorer({ projectId }: Props) {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
+
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    dragDepth.current++;
+    setDragging(true);
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    dragDepth.current--;
+    if (dragDepth.current <= 0) {
+      dragDepth.current = 0;
+      setDragging(false);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    void handleUpload(e.dataTransfer.files);
   }
 
   async function handleNewFolder() {
@@ -187,7 +235,9 @@ export default function FileExplorer({ projectId }: Props) {
           type="file"
           multiple
           hidden
-          onChange={(e) => void handleUpload(e.target.files)}
+          onChange={(e) => {
+            if (e.target.files) void handleUpload(e.target.files);
+          }}
         />
         <button
           onClick={() => fileInputRef.current?.click()}
@@ -206,13 +256,21 @@ export default function FileExplorer({ projectId }: Props) {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-1.5">
+      <div
+        className="relative flex-1 overflow-y-auto p-1.5"
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {loading ? (
           <p className="p-2 text-xs text-muted">加载中...</p>
         ) : error ? (
           <p className="p-2 text-xs text-danger">{error}</p>
         ) : entries.length === 0 ? (
-          <p className="p-2 text-xs text-muted">空文件夹</p>
+          <p className="p-2 text-xs text-muted">
+            空文件夹，拖拽文件或文件夹到此上传
+          </p>
         ) : (
           entries.map((e) => (
             <div
@@ -242,6 +300,13 @@ export default function FileExplorer({ projectId }: Props) {
               </button>
             </div>
           ))
+        )}
+        {dragging && (
+          <div className="pointer-events-none absolute inset-1 flex items-center justify-center rounded-lg border-2 border-dashed border-accent bg-accent/10">
+            <p className="text-xs font-medium text-accent">
+              松开以上传到 {path || "根目录"}
+            </p>
+          </div>
         )}
       </div>
 
