@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Cell as CellType, CellOutput } from "@/lib/types";
-import { highlightPython } from "@/lib/highlight";
+import { highlightPython, highlightShell } from "@/lib/highlight";
 import { remarkDocLinks, docNameFromHref } from "@/lib/wiki";
 import {
   MarkdownIcon,
@@ -16,11 +16,9 @@ import {
   ChevronUp,
   TerminalIcon,
 } from "@/components/icons";
-import ShellTerminal from "@/components/ShellTerminal";
 
 interface Props {
   cell: CellType;
-  projectId: string;
   running: boolean;
   onEdit: (content: string) => void;
   onDelete: () => void;
@@ -110,7 +108,6 @@ function CellOutputView({
 
 export default function Cell({
   cell,
-  projectId,
   running,
   onEdit,
   onDelete,
@@ -126,8 +123,13 @@ export default function Cell({
   const output = cell.output;
 
   const highlighted = useMemo(
-    () => (isCode ? highlightPython(cell.content) : ""),
-    [isCode, cell.content]
+    () =>
+      isCode
+        ? highlightPython(cell.content)
+        : isShell
+          ? highlightShell(cell.content)
+          : "",
+    [isCode, isShell, cell.content]
   );
 
   return (
@@ -157,7 +159,7 @@ export default function Cell({
           )}
         </span>
         <div className="flex-1" />
-        {isCode ? (
+        {isCode || isShell ? (
           <button
             onClick={onRun}
             disabled={running}
@@ -177,7 +179,7 @@ export default function Cell({
               </>
             )}
           </button>
-        ) : isShell ? null : (
+        ) : (
           <button
             onClick={() => setEditing((v) => !v)}
             className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted hover:bg-hover hover:text-foreground"
@@ -195,7 +197,7 @@ export default function Cell({
         </button>
       </div>
 
-      {isCode ? (
+      {isCode || isShell ? (
         <div>
           <div className="code-editor">
             <pre
@@ -211,13 +213,15 @@ export default function Cell({
               autoCapitalize="off"
               autoComplete="off"
               autoCorrect="off"
-              placeholder="# 在这里编写 Python 代码..."
+              placeholder={
+                isShell
+                  ? "# 在这里输入 Shell 命令..."
+                  : "# 在这里编写 Python 代码..."
+              }
             />
           </div>
           {output && <CellOutputView output={output} onToggle={onToggleOutput} />}
         </div>
-      ) : isShell ? (
-        <ShellTerminal projectId={projectId} cellId={cell.id} />
       ) : editing ? (
         <div>
           <textarea

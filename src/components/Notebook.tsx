@@ -204,14 +204,42 @@ export default function Notebook({ projectId, projectName }: Props) {
 
   async function runCell(index: number) {
     const cell = cells[index];
-    if (!cell || cell.type !== "code" || runningIndex != null) return;
+    if (
+      !cell ||
+      (cell.type !== "code" && cell.type !== "shell") ||
+      runningIndex != null
+    )
+      return;
     setRunningIndex(index);
     updateCell(cell.id, { output: undefined });
-    const codeCells = cells
-      .slice(0, index + 1)
-      .filter((c) => c.type === "code")
-      .map((c) => c.content);
     try {
+      if (cell.type === "shell") {
+        const res = await fetch(`/api/projects/${projectId}/execute-shell`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ commands: cell.content }),
+        });
+        const data: CellOutput & { error?: string } = await res.json();
+        if (!res.ok) {
+          updateCell(cell.id, {
+            output: { stdout: "", stderr: "", error: data.error || "执行失败" },
+          });
+        } else {
+          updateCell(cell.id, {
+            output: {
+              stdout: data.stdout,
+              stderr: data.stderr,
+              error: data.error,
+              timedOut: data.timedOut,
+            },
+          });
+        }
+        return;
+      }
+      const codeCells = cells
+        .slice(0, index + 1)
+        .filter((c) => c.type === "code")
+        .map((c) => c.content);
       const res = await fetch(`/api/projects/${projectId}/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -325,7 +353,6 @@ export default function Notebook({ projectId, projectName }: Props) {
               <Cell
                 key={cell.id}
                 cell={cell}
-                projectId={projectId}
                 running={runningIndex === i}
                 onEdit={(content) => updateCell(cell.id, { content })}
                 onDelete={() => deleteCell(cell.id)}
