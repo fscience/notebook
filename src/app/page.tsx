@@ -250,14 +250,14 @@ export default function Home() {
               <button
                 onClick={() => notebookRef.current?.appendBlock("python")}
                 className="flex shrink-0 items-center gap-1 rounded bg-accent px-2 py-1 text-[11px] text-white hover:opacity-90"
-                title="添加 Python 运行块"
+                title="在光标后插入 Python 运行块"
               >
                 <Plus className="h-3 w-3" /> Python
               </button>
               <button
                 onClick={() => notebookRef.current?.appendBlock("shell")}
                 className="flex shrink-0 items-center gap-1 rounded bg-warn/15 px-2 py-1 text-[11px] text-warn hover:bg-warn/25"
-                title="添加 Shell 运行块"
+                title="在光标后插入 Shell 运行块"
               >
                 <Plus className="h-3 w-3" /> Shell
               </button>

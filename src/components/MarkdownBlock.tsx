@@ -3,12 +3,17 @@
 import { useEffect, useRef } from "react";
 import MarkdownView from "@/components/MarkdownView";
 
+export interface CaretRequest {
+  at: number;
+  n: number;
+}
+
 interface Props {
   source: string;
   focused: boolean;
-  pendingCaret?: number | null;
+  caretReq?: CaretRequest | null;
   onFocus: (caret: number) => void;
-  onEdit: (newSource: string) => void;
+  onEdit: (newSource: string, caret?: number) => void;
   onBlur: () => void;
   onNavigate: (docName: string) => void;
   placeholder?: string;
@@ -17,7 +22,7 @@ interface Props {
 export default function MarkdownBlock({
   source,
   focused,
-  pendingCaret,
+  caretReq,
   onFocus,
   onEdit,
   onBlur,
@@ -25,29 +30,46 @@ export default function MarkdownBlock({
   placeholder,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const wasFocused = useRef(false);
+  const applied = useRef(-1);
+
+  const contentPart = source.replace(/\n+$/, "");
 
   useEffect(() => {
-    if (focused && !wasFocused.current && taRef.current) {
-      const ta = taRef.current;
-      ta.focus();
-      const caret =
-        pendingCaret != null
-          ? Math.min(Math.max(0, pendingCaret), source.length)
-          : source.length;
-      ta.setSelectionRange(caret, caret);
-    }
-    wasFocused.current = focused;
-  }, [focused, source.length, pendingCaret]);
+    if (!focused || !taRef.current || !caretReq) return;
+    if (caretReq.n === applied.current) return;
+    const ta = taRef.current;
+    if (document.activeElement !== ta) ta.focus();
+    const display = caretReq.at > contentPart.length ? source : contentPart;
+    const at = Math.min(Math.max(0, caretReq.at), display.length);
+    ta.setSelectionRange(at, at);
+    applied.current = caretReq.n;
+  }, [focused, caretReq, source, contentPart]);
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    const ta = e.currentTarget;
+    const { selectionStart: s, selectionEnd: end } = ta;
+    const before = ta.value.slice(0, s);
+    const after = ta.value.slice(end);
+    const trimmedBefore = before.replace(/\n+$/, "");
+    const trimmedAfter = after.replace(/^\n+/, "");
+    const newValue = trimmedBefore + "\n\n" + trimmedAfter;
+    const caret = trimmedBefore.length + 2;
+    onEdit(newValue, caret);
+  }
 
   if (focused) {
+    const showTrailing = caretReq != null && caretReq.at > contentPart.length;
+    const displayValue = showTrailing ? source : contentPart;
     return (
       <textarea
         ref={taRef}
-        value={source}
-        onChange={(e) => onEdit(e.target.value)}
+        value={displayValue}
+        onChange={(e) => onEdit(e.target.value, e.target.selectionStart)}
+        onKeyDown={handleKeyDown}
         onBlur={onBlur}
-        rows={Math.max(1, source.split("\n").length)}
+        rows={Math.max(1, displayValue.split("\n").length)}
         spellCheck={false}
         className="w-full resize-y rounded-md border border-accent bg-cell-bg px-2 py-1.5 font-mono text-[13px] leading-relaxed text-foreground outline-none"
         placeholder={placeholder}
@@ -67,7 +89,9 @@ export default function MarkdownBlock({
           Math.max((e.clientX - rect.left) / Math.max(rect.width, 1), 0),
           1
         );
-        onFocus(Math.round(ratio * source.length));
+        onFocus(
+          Math.min(Math.round(ratio * source.length), contentPart.length)
+        );
       }}
     >
       <MarkdownView content={source} onNavigate={onNavigate} />

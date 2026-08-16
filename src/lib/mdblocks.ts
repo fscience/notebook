@@ -191,5 +191,11 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
     i = j;
   }
 
+  for (let k = 0; k < blocks.length; k++) {
+    const start = blocks[k].start;
+    const end = k + 1 < blocks.length ? blocks[k + 1].start : src.length;
+    blocks[k] = { source: src.slice(start, end), start, end };
+  }
+
   return blocks;
 }

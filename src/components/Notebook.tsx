@@ -4,6 +4,7 @@ import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react
 import type { Ref } from "react";
 import type { CellOutput, Document } from "@/lib/types";
 import MarkdownBlock from "@/components/MarkdownBlock";
+import type { CaretRequest } from "@/components/MarkdownBlock";
 import RunBlock from "@/components/RunBlock";
 import { ChevronLeft } from "@/components/icons";
 import { ROOT_DOC_NAME } from "@/lib/wiki";
@@ -53,7 +54,7 @@ export default function Notebook({
   const [loading, setLoading] = useState(true);
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
-  const [pendingCaret, setPendingCaret] = useState<number | null>(null);
+  const [caretReq, setCaretReq] = useState<CaretRequest | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [loadError, setLoadError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,9 +65,15 @@ export default function Notebook({
   const focusedKeyRef = useRef<string | null>(null);
   const pendingRangeRef = useRef<{
     start: number;
-    len: number;
-    srcLen: number;
+    textLen: number;
+    caret: number | null;
+    trailing?: boolean;
   } | null>(null);
+  const caretReqRef = useRef<CaretRequest | null>(null);
+
+  useEffect(() => {
+    caretReqRef.current = caretReq;
+  }, [caretReq]);
 
   useEffect(() => {
     contentRef.current = content;
@@ -125,21 +132,44 @@ export default function Notebook({
 
   function appendBlock(kind: RunBlockKind) {
     const block = serializeBlock(kind, "");
-    setContent((prev) => {
-      if (!prev.trim()) return block;
-      return prev.replace(/\n+$/, "") + "\n\n" + block;
-    });
-    focusedKeyRef.current = null;
-    setFocusedKey(null);
-    setPendingCaret(null);
-    pendingRangeRef.current = null;
+    const anchor = mdBlocks.find((b) => b.key === focusedKey);
+    if (anchor) {
+      const at = anchor.end;
+      setContent((prev) => {
+        const head = prev.slice(0, at);
+        const tail = prev.slice(at);
+        const headSep =
+          head === "" || head.endsWith("\n\n")
+            ? ""
+            : head.endsWith("\n")
+              ? "\n"
+              : "\n\n";
+        const tailSep =
+          tail === "" || tail.startsWith("\n\n")
+            ? ""
+            : tail.startsWith("\n")
+              ? "\n"
+              : "\n\n";
+        return head + headSep + block + tailSep + tail;
+      });
+    } else {
+      setContent((prev) => {
+        if (!prev.trim()) return block;
+        return prev.replace(/\n+$/, "") + "\n\n" + block;
+      });
+    }
     setSaveState("dirty");
   }
+
+  const appendBlockRef = useRef<(kind: RunBlockKind) => void>(() => {});
+  useEffect(() => {
+    appendBlockRef.current = appendBlock;
+  });
 
   useImperativeHandle(
     ref,
     () => ({
-      appendBlock: (kind) => appendBlock(kind),
+      appendBlock: (kind) => appendBlockRef.current(kind),
     }),
     []
   );
@@ -270,15 +300,24 @@ export default function Notebook({
     if (!r) return;
     pendingRangeRef.current = null;
     const inRange = mdBlocks.filter(
-      (b) => b.start >= r.start && b.start < r.start + r.len
+      (b) => b.start >= r.start && b.start < r.start + r.textLen
     );
     const target = inRange.length > 0 ? inRange[inRange.length - 1] : null;
     if (!target) return;
-    if (target.key !== focusedKeyRef.current) {
+    const caret = Math.max(
+      0,
+      Math.min(
+        r.caret != null
+          ? r.caret - (target.start - r.start)
+          : r.textLen - (target.start - r.start),
+        r.trailing
+          ? target.source.length
+          : target.source.replace(/\n+$/, "").length
+      )
+    );
+    if (target.key !== focusedKeyRef.current || r.caret != null) {
       setFocusedKey(target.key);
-      setPendingCaret(
-        Math.max(0, Math.min(r.srcLen - (target.start - r.start), target.source.length))
-      );
+      setCaretReq({ at: caret, n: (caretReqRef.current?.n ?? 0) + 1 });
     }
   }, [mdBlocks]);
 
@@ -297,7 +336,7 @@ export default function Notebook({
     setCurrentDoc(name);
     focusedKeyRef.current = null;
     setFocusedKey(null);
-    setPendingCaret(null);
+    setCaretReq(null);
     pendingRangeRef.current = null;
     setSaveState("dirty");
   }
@@ -393,39 +432,67 @@ export default function Notebook({
     setDocOutput(seg.key, { ...output, collapsed });
   }
 
-  function editMdBlock(block: FlatMdBlock, newSource: string) {
-    const suffix = content.slice(block.end);
-    let replaced = newSource;
-    if (suffix.startsWith("\n") && !replaced.endsWith("\n")) {
-      replaced += "\n";
-    }
-    pendingRangeRef.current = {
-      start: block.start,
-      len: replaced.length,
-      srcLen: newSource.length,
-    };
+  function editMdBlock(block: FlatMdBlock, newSource: string, caret?: number) {
+    const textPart = newSource.replace(/\n+$/, "");
+    const replaced = textPart !== "" ? textPart + "\n\n" : "";
+    const unchanged = replaced === content.slice(block.start, block.end);
     setContent((prev) =>
       prev.slice(0, block.start) + replaced + prev.slice(block.end)
     );
     setSaveState("dirty");
+    if (unchanged && caret != null) {
+      setFocusedKey(block.key);
+      setCaretReq({ at: caret, n: (caretReqRef.current?.n ?? 0) + 1 });
+    } else {
+      pendingRangeRef.current = {
+        start: block.start,
+        textLen: textPart.length,
+        caret: caret ?? null,
+      };
+    }
   }
 
   function focusBlock(block: FlatMdBlock, caret: number) {
     pendingRangeRef.current = null;
     setFocusedKey(block.key);
-    setPendingCaret(caret);
+    setCaretReq({ at: caret, n: (caretReqRef.current?.n ?? 0) + 1 });
   }
 
   function blurBlock() {
     setFocusedKey(null);
-    setPendingCaret(null);
+    setCaretReq(null);
+  }
+
+  function appendParagraph() {
+    if (!content.trim()) return;
+    const newContent = content.replace(/\n+$/, "") + "\n\n";
+    const last = mdBlocks.length > 0 ? mdBlocks[mdBlocks.length - 1] : null;
+    setContent(newContent);
+    setSaveState("dirty");
+    if (!last) return;
+    const lastSource = newContent.slice(last.start);
+    if (newContent === content) {
+      setFocusedKey(last.key);
+      setCaretReq({ at: lastSource.length, n: (caretReqRef.current?.n ?? 0) + 1 });
+    } else {
+      pendingRangeRef.current = {
+        start: last.start,
+        textLen: lastSource.replace(/\n+$/, "").length,
+        caret: lastSource.length,
+        trailing: true,
+      };
+    }
   }
 
   function handleEmptyEdit(v: string) {
     setContent(v);
     setSaveState("dirty");
     if (v.trim() !== "") {
-      pendingRangeRef.current = { start: 0, len: v.length, srcLen: v.length };
+      pendingRangeRef.current = {
+        start: 0,
+        textLen: v.replace(/\n+$/, "").length,
+        caret: null,
+      };
     }
   }
 
@@ -447,7 +514,7 @@ export default function Notebook({
             placeholder="# 在这里编写 Markdown，用 ```python-run / ```shell-run 代码块插入可运行模块..."
           />
         ) : (
-          <div className="relative mx-auto max-w-3xl py-1">
+          <div className="relative mx-auto flex min-h-full max-w-3xl flex-col py-1">
             <div className="space-y-1">
               {renderItems.map((item) =>
                 item.t === "md" ? (
@@ -455,11 +522,11 @@ export default function Notebook({
                     key={item.block.key}
                     source={item.block.source}
                     focused={focusedKey === item.block.key}
-                    pendingCaret={
-                      focusedKey === item.block.key ? pendingCaret : null
+                    caretReq={
+                      focusedKey === item.block.key ? caretReq : null
                     }
                     onFocus={(caret) => focusBlock(item.block, caret)}
-                    onEdit={(src) => editMdBlock(item.block, src)}
+                    onEdit={(src, caret) => editMdBlock(item.block, src, caret)}
                     onBlur={blurBlock}
                     onNavigate={(name) => void navigate(name)}
                   />
@@ -481,6 +548,13 @@ export default function Notebook({
                 )
               )}
             </div>
+            <div
+              className="flex-1 cursor-text"
+              onClick={(e) => {
+                e.stopPropagation();
+                appendParagraph();
+              }}
+            />
           </div>
         )}
       </div>
