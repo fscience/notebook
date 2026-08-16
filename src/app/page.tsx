@@ -3,12 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project } from "@/lib/types";
 import ProjectList from "@/components/ProjectList";
-import Notebook from "@/components/Notebook";
+import Notebook, {
+  type NotebookHandle,
+  type NotebookHeaderState,
+} from "@/components/Notebook";
 import FileExplorer from "@/components/FileExplorer";
 import EnvPanel from "@/components/EnvPanel";
 import SettingsModal from "@/components/SettingsModal";
 import ShellTerminal from "@/components/ShellTerminal";
-import { ChevronLeft, ChevronRight, Gear, TerminalIcon, Close } from "@/components/icons";
+import { ChevronLeft, ChevronRight, Gear, TerminalIcon, Close, Plus } from "@/components/icons";
+import { ROOT_DOC_NAME } from "@/lib/wiki";
 
 const MIN_RIGHT_WIDTH = 200;
 const MIN_SHELL_HEIGHT = 120;
@@ -26,6 +30,10 @@ export default function Home() {
   const [shellOpen, setShellOpen] = useState(false);
   const [shellHeight, setShellHeight] = useState(260);
   const [draggingShell, setDraggingShell] = useState(false);
+  const [headerInfo, setHeaderInfo] = useState<NotebookHeaderState | null>(
+    null
+  );
+  const notebookRef = useRef<NotebookHandle | null>(null);
   const rightDragRef = useRef<{ startX: number; startWidth: number } | null>(
     null
   );
@@ -54,6 +62,10 @@ export default function Home() {
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  const handleHeaderState = useCallback((info: NotebookHeaderState) => {
+    setHeaderInfo(info);
+  }, []);
 
   async function handleCreate(name: string) {
     const res = await fetch("/api/projects", {
@@ -212,7 +224,52 @@ export default function Home() {
           <span className="truncate text-sm font-semibold">
             {selected ? selected.name : "Notebook"}
           </span>
+          {selected && headerInfo && headerInfo.currentDoc !== ROOT_DOC_NAME && (
+            <span className="hidden shrink-0 truncate text-xs text-muted md:inline">
+              › {headerInfo.currentDoc}
+            </span>
+          )}
           <div className="flex-1" />
+          {selected && (
+            <>
+              <span
+                className={`hidden shrink-0 text-[11px] lg:inline ${
+                  headerInfo && headerInfo.saveState === "saved"
+                    ? "text-muted"
+                    : "text-warn"
+                }`}
+              >
+                {!headerInfo || headerInfo.loading
+                  ? "加载中..."
+                  : headerInfo.saveState === "saved"
+                    ? "已保存"
+                    : headerInfo.saveState === "saving"
+                      ? "保存中..."
+                      : "未保存"}
+              </span>
+              <button
+                onClick={() => notebookRef.current?.insertCell("markdown")}
+                className="flex shrink-0 items-center gap-1 rounded bg-accent/10 px-2 py-1 text-[11px] text-accent hover:bg-accent/20"
+                title="添加 Markdown 单元格"
+              >
+                <Plus className="h-3 w-3" /> Markdown
+              </button>
+              <button
+                onClick={() => notebookRef.current?.insertCell("code")}
+                className="flex shrink-0 items-center gap-1 rounded bg-accent px-2 py-1 text-[11px] text-white hover:opacity-90"
+                title="添加 Python 单元格"
+              >
+                <Plus className="h-3 w-3" /> Python
+              </button>
+              <button
+                onClick={() => notebookRef.current?.insertCell("shell")}
+                className="flex shrink-0 items-center gap-1 rounded bg-warn/15 px-2 py-1 text-[11px] text-warn hover:bg-warn/25"
+                title="添加 Shell 单元格"
+              >
+                <Plus className="h-3 w-3" /> Shell
+              </button>
+            </>
+          )}
           <button
             onClick={() => setShellOpen((v) => !v)}
             disabled={!selected}
@@ -251,6 +308,8 @@ export default function Home() {
                 key={selected.id}
                 projectId={selected.id}
                 projectName={selected.name}
+                ref={notebookRef}
+                onHeaderState={handleHeaderState}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted">

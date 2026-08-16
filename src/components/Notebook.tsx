@@ -1,21 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import type { Ref } from "react";
 import type {
   Cell as CellType,
   CellOutput,
   Document,
 } from "@/lib/types";
 import Cell from "@/components/Cell";
-import { Plus, ChevronLeft } from "@/components/icons";
+import { ChevronLeft } from "@/components/icons";
+
 import { ROOT_DOC_NAME } from "@/lib/wiki";
+
+export type SaveState = "saved" | "saving" | "dirty";
+
+export interface NotebookHeaderState {
+  loading: boolean;
+  saveState: SaveState;
+  currentDoc: string;
+}
+
+export interface NotebookHandle {
+  insertCell: (type: CellType["type"]) => void;
+}
 
 interface Props {
   projectId: string;
   projectName: string;
+  ref?: Ref<NotebookHandle>;
+  onHeaderState?: (info: NotebookHeaderState) => void;
 }
-
-type SaveState = "saved" | "saving" | "dirty";
 
 let uid = 0;
 function makeId(): string {
@@ -24,7 +38,11 @@ function makeId(): string {
     .slice(2, 6)}`;
 }
 
-export default function Notebook({ projectId, projectName }: Props) {
+export default function Notebook({
+  projectId,
+  onHeaderState,
+  ref,
+}: Props) {
   const [docs, setDocs] = useState<Document[]>([]);
   const [currentDoc, setCurrentDoc] = useState<string>(ROOT_DOC_NAME);
   const [cells, setCells] = useState<CellType[]>([]);
@@ -48,6 +66,18 @@ export default function Notebook({ projectId, projectName }: Props) {
   useEffect(() => {
     currentDocRef.current = currentDoc;
   }, [currentDoc]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertCell: (type) => insertCell(type, null),
+    }),
+    []
+  );
+
+  useEffect(() => {
+    onHeaderState?.({ loading, saveState, currentDoc });
+  }, [loading, saveState, currentDoc, onHeaderState]);
 
   useEffect(() => {
     let alive = true;
@@ -272,49 +302,6 @@ export default function Notebook({ projectId, projectName }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-panel-border px-4 py-2">
-        <h2 className="min-w-0 truncate text-sm font-semibold" title={projectName}>
-          {projectName}
-        </h2>
-        {currentDoc !== ROOT_DOC_NAME && (
-          <span className="shrink-0 truncate text-xs text-muted">
-            › {currentDoc}
-          </span>
-        )}
-        <div className="flex-1" />
-        <span
-          className={`text-[11px] ${
-            saveState === "saved" ? "text-muted" : "text-warn"
-          }`}
-        >
-          {loading
-            ? "加载中..."
-            : saveState === "saved"
-              ? "已保存"
-              : saveState === "saving"
-                ? "保存中..."
-                : "未保存"}
-        </span>
-        <button
-          onClick={() => insertCell("markdown", null)}
-          className="flex items-center gap-1 rounded bg-accent/10 px-2 py-1 text-[11px] text-accent hover:bg-accent/20"
-        >
-          <Plus className="h-3 w-3" /> Markdown
-        </button>
-        <button
-          onClick={() => insertCell("code", null)}
-          className="flex items-center gap-1 rounded bg-accent px-2 py-1 text-[11px] text-white hover:opacity-90"
-        >
-          <Plus className="h-3 w-3" /> Python
-        </button>
-        <button
-          onClick={() => insertCell("shell", null)}
-          className="flex items-center gap-1 rounded bg-warn/15 px-2 py-1 text-[11px] text-warn hover:bg-warn/25"
-        >
-          <Plus className="h-3 w-3" /> Shell
-        </button>
-      </div>
-
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {loadError ? (
           <p className="text-sm text-danger">{loadError}</p>
