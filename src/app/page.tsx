@@ -248,23 +248,16 @@ export default function Home() {
                       : "未保存"}
               </span>
               <button
-                onClick={() => notebookRef.current?.insertCell("markdown")}
-                className="flex shrink-0 items-center gap-1 rounded bg-accent/10 px-2 py-1 text-[11px] text-accent hover:bg-accent/20"
-                title="添加 Markdown 单元格"
-              >
-                <Plus className="h-3 w-3" /> Markdown
-              </button>
-              <button
-                onClick={() => notebookRef.current?.insertCell("code")}
+                onClick={() => notebookRef.current?.appendBlock("python")}
                 className="flex shrink-0 items-center gap-1 rounded bg-accent px-2 py-1 text-[11px] text-white hover:opacity-90"
-                title="添加 Python 单元格"
+                title="添加 Python 运行块"
               >
                 <Plus className="h-3 w-3" /> Python
               </button>
               <button
-                onClick={() => notebookRef.current?.insertCell("shell")}
+                onClick={() => notebookRef.current?.appendBlock("shell")}
                 className="flex shrink-0 items-center gap-1 rounded bg-warn/15 px-2 py-1 text-[11px] text-warn hover:bg-warn/25"
-                title="添加 Shell 单元格"
+                title="添加 Shell 运行块"
               >
                 <Plus className="h-3 w-3" /> Shell
               </button>

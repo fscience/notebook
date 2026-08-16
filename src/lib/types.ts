@@ -13,16 +13,10 @@ export interface CellOutput {
   collapsed?: boolean;
 }
 
-export interface Cell {
-  id: string;
-  type: "markdown" | "code" | "shell";
-  content: string;
-  output?: CellOutput;
-}
-
 export interface Document {
   name: string;
-  cells: Cell[];
+  content: string;
+  outputs?: Record<string, CellOutput>;
 }
 
 export interface FileEntry {

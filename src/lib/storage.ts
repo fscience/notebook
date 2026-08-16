@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { extractDocLinks, ROOT_DOC_NAME } from "@/lib/wiki";
+import { parseContent, runBlockKey, serializeBlock, type RunSegment } from "@/lib/runblock";
 
 export interface Project {
   id: string;
@@ -17,8 +18,8 @@ export interface CellOutput {
   collapsed?: boolean;
 }
 
-export interface Cell {
-  id: string;
+interface LegacyCell {
+  id?: string;
   type: "markdown" | "code" | "shell";
   content: string;
   output?: CellOutput;
@@ -26,7 +27,8 @@ export interface Cell {
 
 export interface Document {
   name: string;
-  cells: Cell[];
+  content: string;
+  outputs?: Record<string, CellOutput>;
 }
 
 export interface FileEntry {
@@ -154,7 +156,7 @@ export async function createProject(name: string): Promise<Project> {
   );
   await fs.writeFile(
     path.join(dir, "content.json"),
-    JSON.stringify({ documents: [{ name: ROOT_DOC_NAME, cells: [] }] })
+    JSON.stringify({ documents: [{ name: ROOT_DOC_NAME, content: "" }] })
   );
   return project;
 }
@@ -181,6 +183,47 @@ export async function deleteProject(id: string): Promise<void> {
   await fs.rm(await projectDir(id), { recursive: true, force: true });
 }
 
+function migrateDocument(
+  d: { name?: unknown; content?: unknown; cells?: unknown; outputs?: unknown }
+): Document {
+  const name = typeof d.name === "string" && d.name ? d.name : ROOT_DOC_NAME;
+  if (typeof d.content === "string") {
+    return {
+      name,
+      content: d.content,
+      ...(d.outputs && typeof d.outputs === "object"
+        ? { outputs: d.outputs as Record<string, CellOutput> }
+        : {}),
+    };
+  }
+  const cells: LegacyCell[] = Array.isArray(d.cells)
+    ? d.cells.filter(
+        (c): c is LegacyCell =>
+          !!c &&
+          typeof (c as LegacyCell).content === "string" &&
+          ["markdown", "code", "shell"].includes(
+            (c as LegacyCell).type
+          )
+      )
+    : [];
+  const outputs: Record<string, CellOutput> = {};
+  let content = "";
+  for (const cell of cells) {
+    let piece = "";
+    if (cell.type === "markdown") {
+      piece = cell.content;
+    } else {
+      const kind = cell.type === "code" ? "python" : "shell";
+      piece = serializeBlock(kind, cell.content);
+      if (cell.output) {
+        outputs[runBlockKey(kind, cell.content)] = cell.output;
+      }
+    }
+    content += (content ? "\n" : "") + piece;
+  }
+  return { name, content, outputs };
+}
+
 export async function getDocuments(id: string): Promise<Document[]> {
   let docs: Document[] = [];
   let changed = false;
@@ -191,21 +234,24 @@ export async function getDocuments(id: string): Promise<Document[]> {
     );
     const parsed = JSON.parse(raw);
     if (parsed && Array.isArray(parsed.documents)) {
-      docs = parsed.documents.filter(
-        (d: unknown): d is Document =>
-          !!d &&
-          typeof (d as Document).name === "string" &&
-          Array.isArray((d as Document).cells)
-      );
+      docs = parsed.documents.map((d: unknown) => {
+        const migrated = migrateDocument(
+          d as { name?: unknown; content?: unknown; cells?: unknown }
+        );
+        if (!(d && typeof (d as { content?: unknown }).content === "string")) {
+          changed = true;
+        }
+        return migrated;
+      });
     } else if (parsed && Array.isArray(parsed.cells)) {
-      docs = [{ name: ROOT_DOC_NAME, cells: parsed.cells as Cell[] }];
+      docs = [migrateDocument({ name: ROOT_DOC_NAME, cells: parsed.cells })];
       changed = true;
     }
   } catch {
     /* empty content.json */
   }
   if (!docs.some((d) => d.name === ROOT_DOC_NAME)) {
-    docs = [{ name: ROOT_DOC_NAME, cells: [] }, ...docs];
+    docs = [{ name: ROOT_DOC_NAME, content: "" }, ...docs];
     changed = true;
   }
   if (changed) await saveDocuments(id, docs);
@@ -225,9 +271,9 @@ export async function saveDocuments(
 function pruneOrphans(docs: Document[]): Document[] {
   const referenced = new Set<string>([ROOT_DOC_NAME]);
   for (const d of docs) {
-    for (const c of d.cells) {
-      if (c.type !== "markdown") continue;
-      for (const name of extractDocLinks(c.content)) referenced.add(name);
+    for (const seg of parseContent(d.content)) {
+      if (seg.kind !== "markdown") continue;
+      for (const name of extractDocLinks(seg.content)) referenced.add(name);
     }
   }
   return docs.filter((d) => referenced.has(d.name));
@@ -236,13 +282,23 @@ function pruneOrphans(docs: Document[]): Document[] {
 export async function saveDocument(
   id: string,
   name: string,
-  cells: Cell[]
+  content: string,
+  outputs: Record<string, CellOutput>
 ): Promise<Document[]> {
   const docs = await getDocuments(id);
   const clean = String(name || "").trim() || ROOT_DOC_NAME;
+  const validKeys = new Set(
+    parseContent(content)
+      .filter((s): s is RunSegment => s.kind !== "markdown")
+      .map((s) => s.key)
+  );
+  const prunedOutputs = Object.fromEntries(
+    Object.entries(outputs).filter(([key]) => validKeys.has(key))
+  );
+  const doc: Document = { name: clean, content, outputs: prunedOutputs };
   const idx = docs.findIndex((d) => d.name === clean);
-  if (idx >= 0) docs[idx] = { name: clean, cells };
-  else docs.push({ name: clean, cells });
+  if (idx >= 0) docs[idx] = doc;
+  else docs.push(doc);
   const pruned = pruneOrphans(docs);
   await saveDocuments(id, pruned);
   return pruned;
