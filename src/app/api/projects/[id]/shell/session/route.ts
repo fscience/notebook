@@ -11,7 +11,8 @@ export async function POST(
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
     const cellId = typeof body.cellId === "string" ? body.cellId : "";
-    const session = await attachShell(id, cellId);
+    const persistHistory = body.persistHistory !== false;
+    const session = await attachShell(id, cellId, { persistHistory });
     return NextResponse.json({ ok: true, cwd: session.cwd, root: session.root });
   } catch (err) {
     return NextResponse.json(

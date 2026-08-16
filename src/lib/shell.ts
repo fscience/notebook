@@ -206,7 +206,11 @@ export function getLiveCommands(id: string, cellId: string): string[] {
   return sessions.get(sessionKey(id, cellId))?.commands ?? [];
 }
 
-export function attachShell(id: string, cellId: string): Promise<PtySession> {
+export function attachShell(
+  id: string,
+  cellId: string,
+  opts?: { persistHistory?: boolean }
+): Promise<PtySession> {
   const key = sessionKey(id, cellId);
   const existing = sessions.get(key);
   if (existing?.session.alive) return Promise.resolve(existing.session);
@@ -214,20 +218,47 @@ export function attachShell(id: string, cellId: string): Promise<PtySession> {
   const inflight = pendingAttach.get(key);
   if (inflight) return inflight;
 
-  const task = doAttach(id, cellId, key);
+  const task = doAttach(id, cellId, key, opts);
   pendingAttach.set(key, task);
   task.finally(() => pendingAttach.delete(key)).catch(() => {});
   return task;
 }
 
-async function doAttach(id: string, cellId: string, key: string): Promise<PtySession> {
+async function doAttach(
+  id: string,
+  cellId: string,
+  key: string,
+  opts?: { persistHistory?: boolean }
+): Promise<PtySession> {
   const existing = sessions.get(key);
   if (existing?.session.alive) return existing.session;
   if (existing?.session.alive === false) sessions.delete(key);
 
+  const persistHistory = opts?.persistHistory !== false;
   const root = await projectFilesDir(id);
   const proxy = await ensureProxy();
-  const histfile = path.join(await projectDir(id), `.shell_history_${safeCell(cellId)}`);
+  let histfile: string | null = null;
+  if (persistHistory) {
+    histfile = path.join(
+      await projectDir(id),
+      `.shell_history_${safeCell(cellId)}`
+    );
+  }
+
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    TERM: "xterm-256color",
+    COLORTERM: "truecolor",
+    PWD: root,
+  };
+  if (persistHistory && histfile) {
+    env.HISTFILE = histfile;
+    env.HISTSIZE = String(HISTORY_LIMIT);
+    env.SAVEHIST = String(HISTORY_LIMIT);
+    env.HISTCONTROL = "ignoredups:ignorespace";
+  } else {
+    env.HISTFILE = "/dev/null";
+  }
 
   const child: ChildProcess = spawn(
     "python3",
@@ -236,16 +267,7 @@ async function doAttach(id: string, cellId: string, key: string): Promise<PtySes
       cwd: root,
       stdio: ["pipe", "pipe", "pipe", "pipe"],
       detached: true,
-      env: {
-        ...process.env,
-        TERM: "xterm-256color",
-        COLORTERM: "truecolor",
-        PWD: root,
-        HISTFILE: histfile,
-        HISTSIZE: String(HISTORY_LIMIT),
-        SAVEHIST: String(HISTORY_LIMIT),
-        HISTCONTROL: "ignoredups:ignorespace",
-      },
+      env,
     }
   );
 

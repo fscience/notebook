@@ -7,9 +7,11 @@ import Notebook from "@/components/Notebook";
 import FileExplorer from "@/components/FileExplorer";
 import EnvPanel from "@/components/EnvPanel";
 import SettingsModal from "@/components/SettingsModal";
-import { ChevronLeft, ChevronRight, Gear } from "@/components/icons";
+import ShellTerminal from "@/components/ShellTerminal";
+import { ChevronLeft, ChevronRight, Gear, TerminalIcon, Close } from "@/components/icons";
 
 const MIN_RIGHT_WIDTH = 200;
+const MIN_SHELL_HEIGHT = 120;
 
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -21,7 +23,13 @@ export default function Home() {
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [draggingRight, setDraggingRight] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shellOpen, setShellOpen] = useState(false);
+  const [shellHeight, setShellHeight] = useState(260);
+  const [draggingShell, setDraggingShell] = useState(false);
   const rightDragRef = useRef<{ startX: number; startWidth: number } | null>(
+    null
+  );
+  const shellDragRef = useRef<{ startY: number; startHeight: number } | null>(
     null
   );
 
@@ -121,10 +129,37 @@ export default function Home() {
     }
   }
 
+  function startShellDrag(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    shellDragRef.current = { startY: e.clientY, startHeight: shellHeight };
+    setDraggingShell(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onShellDragMove(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = shellDragRef.current;
+    if (!drag) return;
+    const delta = e.clientY - drag.startY;
+    const max = Math.max(MIN_SHELL_HEIGHT, window.innerHeight * 0.7);
+    setShellHeight(
+      Math.min(Math.max(drag.startHeight - delta, MIN_SHELL_HEIGHT), max)
+    );
+  }
+
+  function endShellDrag(e: React.PointerEvent<HTMLDivElement>) {
+    shellDragRef.current = null;
+    setDraggingShell(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+  }
+
   return (
     <div
       className={`flex h-screen w-full overflow-hidden ${
-        draggingRight ? "select-none" : ""
+        draggingRight || draggingShell ? "select-none" : ""
       }`}
     >
       {!leftCollapsed && (
@@ -178,6 +213,18 @@ export default function Home() {
             {selected ? selected.name : "Notebook"}
           </span>
           <div className="flex-1" />
+          <button
+            onClick={() => setShellOpen((v) => !v)}
+            disabled={!selected}
+            className={`rounded p-1 ${
+              shellOpen
+                ? "bg-accent/15 text-accent"
+                : "text-muted hover:bg-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            }`}
+            title={shellOpen ? "收起终端面板" : "展开终端面板"}
+          >
+            <TerminalIcon className="h-4 w-4" />
+          </button>
           {rightCollapsed ? (
             <button
               onClick={() => setRightCollapsed(false)}
@@ -267,6 +314,42 @@ export default function Home() {
             </>
           )}
         </div>
+
+        {shellOpen && selected && (
+          <div
+            style={{ height: shellHeight }}
+            className="flex shrink-0 flex-col border-t border-panel-border bg-panel-bg"
+          >
+            <div
+              onPointerDown={startShellDrag}
+              onPointerMove={onShellDragMove}
+              onPointerUp={endShellDrag}
+              onPointerCancel={endShellDrag}
+              className="group flex h-1.5 shrink-0 cursor-row-resize items-center justify-center border-b border-panel-border transition-colors hover:bg-accent/50 active:bg-accent"
+              title="拖动调整高度"
+            >
+              <div className="h-0.5 w-10 rounded-full bg-panel-border group-hover:bg-accent/70" />
+            </div>
+            <div className="flex shrink-0 items-center gap-2 border-b border-panel-border px-3 py-1.5">
+              <TerminalIcon className="h-3.5 w-3.5 text-shell-label" />
+              <span className="text-xs font-semibold">终端</span>
+              <span className="text-[10px] text-muted">
+                {selected.name}
+              </span>
+              <div className="flex-1" />
+              <button
+                onClick={() => setShellOpen(false)}
+                className="rounded p-1 text-muted hover:bg-hover hover:text-foreground"
+                title="关闭终端面板"
+              >
+                <Close className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <ShellTerminal projectId={selected.id} cellId="panel" fill noHistory />
+            </div>
+          </div>
+        )}
       </main>
 
       <SettingsModal

@@ -9,6 +9,8 @@ import { Refresh, Trash, ChevronDown, ChevronUp } from "@/components/icons";
 interface ShellTerminalProps {
   projectId: string;
   cellId: string;
+  fill?: boolean;
+  noHistory?: boolean;
 }
 
 interface StreamEvent {
@@ -27,6 +29,8 @@ const PALETTES: Record<"dark" | "light", { background: string; foreground: strin
 export default function ShellTerminal({
   projectId,
   cellId,
+  fill = false,
+  noHistory = false,
 }: ShellTerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -139,7 +143,7 @@ export default function ShellTerminal({
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ cellId }),
+            body: JSON.stringify({ cellId, persistHistory: !noHistory }),
             signal: abort.signal,
           }
         );
@@ -254,7 +258,7 @@ export default function ShellTerminal({
       fitRef.current = null;
       readyRef.current = false;
     };
-  }, [projectId, cellId, resetKey, sendInput, sendResize]);
+  }, [projectId, cellId, resetKey, sendInput, sendResize, noHistory]);
 
   async function handleClearHistory() {
     if (!window.confirm("确定清空这个终端的命令历史？")) return;
@@ -271,8 +275,8 @@ export default function ShellTerminal({
   }
 
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-1 px-2 py-1">
+    <div className={`flex flex-col ${fill ? "h-full" : ""}`}>
+      <div className="flex shrink-0 items-center gap-1 px-2 py-1">
         <span className="text-[10px] font-semibold text-muted">Shell</span>
         <span className="flex items-center gap-1 text-[10px]">
           <span
@@ -297,29 +301,33 @@ export default function ShellTerminal({
         >
           <Refresh className="h-3 w-3" />
         </button>
-        <button
-          onClick={() => void handleClearHistory()}
-          className="rounded p-1 text-muted hover:bg-hover hover:text-foreground"
-          title="清空命令历史"
-        >
-          <Trash className="h-3 w-3" />
-        </button>
+        {!noHistory && (
+          <button
+            onClick={() => void handleClearHistory()}
+            className="rounded p-1 text-muted hover:bg-hover hover:text-foreground"
+            title="清空命令历史"
+          >
+            <Trash className="h-3 w-3" />
+          </button>
+        )}
       </div>
 
       {error && (
-        <div className="mx-2 mb-1 rounded border border-danger/40 bg-danger/10 p-1.5 text-[11px] text-danger">
+        <div className="mx-2 mb-1 shrink-0 rounded border border-danger/40 bg-danger/10 p-1.5 text-[11px] text-danger">
           {error}
         </div>
       )}
 
       <div
         ref={containerRef}
-        className="h-60 overflow-hidden bg-white p-1 dark:bg-cell-bg"
+        className={`overflow-hidden bg-white p-1 dark:bg-cell-bg ${
+          fill ? "min-h-0 flex-1" : "h-60"
+        }`}
         onClick={() => termRef.current?.focus()}
       />
 
-      {commands.length > 0 && (
-        <div className="border-t border-cell-border">
+      {!noHistory && commands.length > 0 && (
+        <div className="shrink-0 border-t border-cell-border">
           <button
             onClick={() => setHistoryCollapsed((v) => !v)}
             className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] text-muted transition hover:bg-hover hover:text-foreground"
