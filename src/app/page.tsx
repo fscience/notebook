@@ -258,61 +258,6 @@ export default function Home() {
               </div>
             )}
           </div>
-
-          {!rightCollapsed && (
-            <>
-              <div
-                onPointerDown={startRightDrag}
-                onPointerMove={onRightDragMove}
-                onPointerUp={endRightDrag}
-                onPointerCancel={endRightDrag}
-                className="w-1 shrink-0 cursor-col-resize border-l border-panel-border bg-panel-bg transition-colors hover:bg-accent/50 active:bg-accent"
-                title="拖动调整宽度"
-              />
-              <aside
-                style={{ width: rightWidth }}
-                className="flex shrink-0 flex-col border-l border-panel-border bg-panel-bg"
-              >
-              {selected ? (
-                <div className="flex h-full flex-col">
-                  <div className="flex shrink-0 border-b border-panel-border">
-                    <button
-                      onClick={() => setRightTab("files")}
-                      className={`flex-1 py-1.5 text-xs font-medium ${
-                        rightTab === "files"
-                          ? "border-b-2 border-accent text-foreground"
-                          : "text-muted hover:text-foreground"
-                      }`}
-                    >
-                      文件
-                    </button>
-                    <button
-                      onClick={() => setRightTab("env")}
-                      className={`flex-1 py-1.5 text-xs font-medium ${
-                        rightTab === "env"
-                          ? "border-b-2 border-accent text-foreground"
-                          : "text-muted hover:text-foreground"
-                      }`}
-                    >
-                      环境
-                    </button>
-                  </div>
-                  <div className="min-h-0 flex-1">
-                    {rightTab === "files" ? (
-                      <FileExplorer key={selected.id} projectId={selected.id} />
-                    ) : (
-                      <EnvPanel key={selected.id} projectId={selected.id} />
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex h-full items-center justify-center text-sm text-muted">
-                  选择一个项目
-                </div>
-              )}
-              </aside>
-            </>
-          )}
         </div>
 
         {shellOpen && selected && (
@@ -351,6 +296,61 @@ export default function Home() {
           </div>
         )}
       </main>
+
+      {!rightCollapsed && (
+        <>
+          <div
+            onPointerDown={startRightDrag}
+            onPointerMove={onRightDragMove}
+            onPointerUp={endRightDrag}
+            onPointerCancel={endRightDrag}
+            className="w-1 shrink-0 cursor-col-resize border-l border-panel-border bg-panel-bg transition-colors hover:bg-accent/50 active:bg-accent"
+            title="拖动调整宽度"
+          />
+          <aside
+            style={{ width: rightWidth }}
+            className="flex shrink-0 flex-col border-l border-panel-border bg-panel-bg"
+          >
+            {selected ? (
+              <div className="flex h-full flex-col">
+                <div className="flex shrink-0 border-b border-panel-border">
+                  <button
+                    onClick={() => setRightTab("files")}
+                    className={`flex-1 py-1.5 text-xs font-medium ${
+                      rightTab === "files"
+                        ? "border-b-2 border-accent text-foreground"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    文件
+                  </button>
+                  <button
+                    onClick={() => setRightTab("env")}
+                    className={`flex-1 py-1.5 text-xs font-medium ${
+                      rightTab === "env"
+                        ? "border-b-2 border-accent text-foreground"
+                        : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    环境
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1">
+                  {rightTab === "files" ? (
+                    <FileExplorer key={selected.id} projectId={selected.id} />
+                  ) : (
+                    <EnvPanel key={selected.id} projectId={selected.id} />
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-muted">
+                选择一个项目
+              </div>
+            )}
+          </aside>
+        </>
+      )}
 
       <SettingsModal
         open={settingsOpen}
