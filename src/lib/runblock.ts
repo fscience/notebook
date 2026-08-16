@@ -8,6 +8,8 @@ export const RUN_INFO: Record<RunBlockKind, string> = {
 export interface MarkdownSegment {
   kind: "markdown";
   content: string;
+  start: number;
+  end: number;
 }
 
 export interface RunSegment {
@@ -74,9 +76,17 @@ export function parseContent(content: string): PageSegment[] {
   }
 
   let markdownBuf: string[] = [];
+  let mdStartLine = 0;
   const flushMarkdown = () => {
     if (markdownBuf.length === 0) return;
-    segments.push({ kind: "markdown", content: markdownBuf.join("\n") });
+    const first = mdStartLine;
+    const last = mdStartLine + markdownBuf.length - 1;
+    const start = lineStartOffsets[first];
+    const end =
+      lineStartOffsets[last] +
+      lines[last].length +
+      (last < lines.length - 1 ? 1 : 0);
+    segments.push({ kind: "markdown", content: markdownBuf.join("\n"), start, end });
     markdownBuf = [];
   };
 
@@ -94,6 +104,7 @@ export function parseContent(content: string): PageSegment[] {
         j++;
       }
       if (j >= lines.length) {
+        if (markdownBuf.length === 0) mdStartLine = i;
         markdownBuf.push(lines[i], ...body);
         i = j;
         continue;
@@ -111,6 +122,7 @@ export function parseContent(content: string): PageSegment[] {
       });
       i = j + 1;
     } else {
+      if (markdownBuf.length === 0) mdStartLine = i;
       markdownBuf.push(lines[i]);
       i++;
     }

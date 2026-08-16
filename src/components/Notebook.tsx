@@ -3,10 +3,11 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { Ref } from "react";
 import type { CellOutput, Document } from "@/lib/types";
-import MarkdownView from "@/components/MarkdownView";
+import MarkdownBlock from "@/components/MarkdownBlock";
 import RunBlock from "@/components/RunBlock";
-import { ChevronLeft, Edit } from "@/components/icons";
+import { ChevronLeft } from "@/components/icons";
 import { ROOT_DOC_NAME } from "@/lib/wiki";
+import { splitMarkdownBlocks, type MarkdownBlock as MdBlock } from "@/lib/mdblocks";
 import {
   parseContent,
   serializeBlock,
@@ -33,6 +34,13 @@ interface Props {
   onHeaderState?: (info: NotebookHeaderState) => void;
 }
 
+interface FlatMdBlock extends MdBlock {
+  key: string;
+  segIndex: number;
+}
+
+type RenderItem = { t: "md"; block: FlatMdBlock } | { t: "run"; seg: RunSegment };
+
 export default function Notebook({
   projectId,
   onHeaderState,
@@ -43,8 +51,9 @@ export default function Notebook({
   const [content, setContent] = useState<string>("");
   const [outputs, setOutputs] = useState<Record<string, CellOutput>>({});
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
   const [runningKey, setRunningKey] = useState<string | null>(null);
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const [pendingCaret, setPendingCaret] = useState<number | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [loadError, setLoadError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,6 +61,12 @@ export default function Notebook({
   const outputsRef = useRef<Record<string, CellOutput>>({});
   const docsRef = useRef<Document[]>([]);
   const currentDocRef = useRef<string>(ROOT_DOC_NAME);
+  const focusedKeyRef = useRef<string | null>(null);
+  const pendingRangeRef = useRef<{
+    start: number;
+    len: number;
+    srcLen: number;
+  } | null>(null);
 
   useEffect(() => {
     contentRef.current = content;
@@ -69,7 +84,57 @@ export default function Notebook({
     currentDocRef.current = currentDoc;
   }, [currentDoc]);
 
+  useEffect(() => {
+    focusedKeyRef.current = focusedKey;
+  }, [focusedKey]);
+
   const segments = useMemo(() => parseContent(content), [content]);
+
+  const mdBlocks = useMemo<FlatMdBlock[]>(() => {
+    const out: FlatMdBlock[] = [];
+    segments.forEach((seg, segIndex) => {
+      if (seg.kind !== "markdown") return;
+      for (const b of splitMarkdownBlocks(seg.content)) {
+        out.push({
+          ...b,
+          key: `md:${seg.start + b.start}`,
+          start: seg.start + b.start,
+          end: seg.start + b.end,
+          segIndex,
+        });
+      }
+    });
+    return out;
+  }, [segments]);
+
+  const renderItems = useMemo<RenderItem[]>(() => {
+    const items: RenderItem[] = [];
+    let mdIdx = 0;
+    segments.forEach((seg, i) => {
+      if (seg.kind === "markdown") {
+        while (mdIdx < mdBlocks.length && mdBlocks[mdIdx].segIndex === i) {
+          items.push({ t: "md", block: mdBlocks[mdIdx] });
+          mdIdx++;
+        }
+      } else {
+        items.push({ t: "run", seg });
+      }
+    });
+    return items;
+  }, [segments, mdBlocks]);
+
+  function appendBlock(kind: RunBlockKind) {
+    const block = serializeBlock(kind, "");
+    setContent((prev) => {
+      if (!prev.trim()) return block;
+      return prev.replace(/\n+$/, "") + "\n\n" + block;
+    });
+    focusedKeyRef.current = null;
+    setFocusedKey(null);
+    setPendingCaret(null);
+    pendingRangeRef.current = null;
+    setSaveState("dirty");
+  }
 
   useImperativeHandle(
     ref,
@@ -200,6 +265,23 @@ export default function Notebook({
     await save();
   }
 
+  useEffect(() => {
+    const r = pendingRangeRef.current;
+    if (!r) return;
+    pendingRangeRef.current = null;
+    const inRange = mdBlocks.filter(
+      (b) => b.start >= r.start && b.start < r.start + r.len
+    );
+    const target = inRange.length > 0 ? inRange[inRange.length - 1] : null;
+    if (!target) return;
+    if (target.key !== focusedKeyRef.current) {
+      setFocusedKey(target.key);
+      setPendingCaret(
+        Math.max(0, Math.min(r.srcLen - (target.start - r.start), target.source.length))
+      );
+    }
+  }, [mdBlocks]);
+
   async function navigate(docName: string) {
     const name = String(docName || "").trim() || ROOT_DOC_NAME;
     if (name === currentDocRef.current) return;
@@ -213,7 +295,10 @@ export default function Notebook({
     setOutputs(nextOutputs);
     currentDocRef.current = name;
     setCurrentDoc(name);
-    setEditing(false);
+    focusedKeyRef.current = null;
+    setFocusedKey(null);
+    setPendingCaret(null);
+    pendingRangeRef.current = null;
     setSaveState("dirty");
   }
 
@@ -249,16 +334,6 @@ export default function Notebook({
       delete next[seg.key];
       return next;
     });
-  }
-
-  function appendBlock(kind: RunBlockKind) {
-    const block = serializeBlock(kind, "");
-    setContent((prev) => {
-      if (!prev.trim()) return block;
-      return prev.replace(/\n+$/, "") + "\n\n" + block;
-    });
-    setEditing(false);
-    setSaveState("dirty");
   }
 
   async function runBlock(seg: RunSegment) {
@@ -318,92 +393,94 @@ export default function Notebook({
     setDocOutput(seg.key, { ...output, collapsed });
   }
 
+  function editMdBlock(block: FlatMdBlock, newSource: string) {
+    const suffix = content.slice(block.end);
+    let replaced = newSource;
+    if (suffix.startsWith("\n") && !replaced.endsWith("\n")) {
+      replaced += "\n";
+    }
+    pendingRangeRef.current = {
+      start: block.start,
+      len: replaced.length,
+      srcLen: newSource.length,
+    };
+    setContent((prev) =>
+      prev.slice(0, block.start) + replaced + prev.slice(block.end)
+    );
+    setSaveState("dirty");
+  }
+
+  function focusBlock(block: FlatMdBlock, caret: number) {
+    pendingRangeRef.current = null;
+    setFocusedKey(block.key);
+    setPendingCaret(caret);
+  }
+
+  function blurBlock() {
+    setFocusedKey(null);
+    setPendingCaret(null);
+  }
+
+  function handleEmptyEdit(v: string) {
+    setContent(v);
+    setSaveState("dirty");
+    if (v.trim() !== "") {
+      pendingRangeRef.current = { start: 0, len: v.length, srcLen: v.length };
+    }
+  }
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-panel-border bg-panel-bg px-4 py-1.5">
-        <button
-          onClick={() => setEditing((v) => !v)}
-          className="flex items-center gap-1 rounded bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent hover:bg-accent/20"
-          title={editing ? "预览渲染效果" : "以 Markdown 源码编辑整个页面"}
-        >
-          <Edit className="h-3 w-3" />
-          {editing ? "预览" : "编辑"}
-        </button>
-        <span className="hidden text-[11px] text-muted md:inline">
-          {editing
-            ? "整个页面即一个 Markdown；运行块用 ```python-run 和 ```shell-run 代码块表示"
-            : "双击“编辑”以 Markdown 源码编辑整个页面"}
-        </span>
-      </div>
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {loadError ? (
           <p className="text-sm text-danger">{loadError}</p>
         ) : loading ? (
           <p className="text-sm text-muted">加载中...</p>
-        ) : editing ? (
-          <textarea
-            value={content}
-            onChange={(e) => {
-              setContent(e.target.value);
-              setSaveState("dirty");
-            }}
-            rows={Math.max(12, content.split("\n").length + 2)}
-            spellCheck={false}
-            className="mx-auto block w-full max-w-3xl resize-y rounded-lg border border-cell-border bg-cell-bg px-3 py-2 font-mono text-[13px] leading-relaxed outline-none focus:border-accent"
-            placeholder="# 在这里编写 Markdown，用 ```python-run / ```shell-run 代码块添加可运行模块..."
-          />
         ) : content.trim() === "" ? (
-          <div className="mx-auto max-w-3xl rounded-lg border border-dashed border-panel-border p-8 text-center">
-            <p className="mb-4 text-sm text-muted">
-              页面整体是一篇 Markdown。点击「编辑」直接编写，
-              或用下方按钮插入 Python / Shell 运行块。
-            </p>
-            <div className="flex justify-center gap-2">
-              <button
-                onClick={() => setEditing(true)}
-                className="rounded bg-accent/10 px-3 py-1.5 text-xs text-accent hover:bg-accent/20"
-              >
-                开始编写 Markdown
-              </button>
-              <button
-                onClick={() => appendBlock("python")}
-                className="rounded bg-accent px-3 py-1.5 text-xs text-white hover:opacity-90"
-              >
-                + Python
-              </button>
-              <button
-                onClick={() => appendBlock("shell")}
-                className="rounded bg-warn/15 px-3 py-1.5 text-xs text-warn hover:bg-warn/25"
-              >
-                + Shell
-              </button>
-            </div>
-          </div>
+          <textarea
+            autoFocus
+            value={content}
+            onChange={(e) => handleEmptyEdit(e.target.value)}
+            rows={6}
+            spellCheck={false}
+            className="mx-auto block w-full max-w-3xl resize-y rounded-lg border border-dashed border-panel-border bg-transparent px-3 py-3 font-mono text-[13px] leading-relaxed text-muted outline-none focus:border-accent"
+            placeholder="# 在这里编写 Markdown，用 ```python-run / ```shell-run 代码块插入可运行模块..."
+          />
         ) : (
-          <div className="mx-auto max-w-3xl space-y-2">
-            {segments.map((seg, i) =>
-              seg.kind === "markdown" ? (
-                seg.content.trim() === "" ? null : (
-                  <MarkdownView
-                    key={`md-${i}`}
-                    content={seg.content}
+          <div className="relative mx-auto max-w-3xl py-1">
+            <div className="space-y-1">
+              {renderItems.map((item) =>
+                item.t === "md" ? (
+                  <MarkdownBlock
+                    key={item.block.key}
+                    source={item.block.source}
+                    focused={focusedKey === item.block.key}
+                    pendingCaret={
+                      focusedKey === item.block.key ? pendingCaret : null
+                    }
+                    onFocus={(caret) => focusBlock(item.block, caret)}
+                    onEdit={(src) => editMdBlock(item.block, src)}
+                    onBlur={blurBlock}
                     onNavigate={(name) => void navigate(name)}
                   />
+                ) : (
+                  <div key={`${item.seg.kind}-${item.seg.start}`} data-run-block>
+                    <RunBlock
+                      kind={item.seg.kind}
+                      code={item.seg.content}
+                      output={outputs[item.seg.key]}
+                      running={runningKey === item.seg.key}
+                      onEdit={(code) => editBlock(item.seg, code)}
+                      onRun={() => void runBlock(item.seg)}
+                      onDelete={() => deleteBlock(item.seg)}
+                      onToggleOutput={(collapsed) =>
+                        toggleOutput(item.seg, collapsed)
+                      }
+                    />
+                  </div>
                 )
-              ) : (
-                <RunBlock
-                  key={`${seg.kind}-${i}`}
-                  kind={seg.kind}
-                  code={seg.content}
-                  output={outputs[seg.key]}
-                  running={runningKey === seg.key}
-                  onEdit={(code) => editBlock(seg, code)}
-                  onRun={() => void runBlock(seg)}
-                  onDelete={() => deleteBlock(seg)}
-                  onToggleOutput={(collapsed) => toggleOutput(seg, collapsed)}
-                />
-              )
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
