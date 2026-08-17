@@ -434,7 +434,7 @@ export default function Notebook({
   }
 
   function editMdBlock(block: FlatMdBlock, newSource: string, caret?: number) {
-    const textPart = newSource.replace(/\n+$/, "");
+    const textPart = newSource.replace(/\n+$/, "").replace(/\u200B/g, "");
     const replaced = textPart !== "" ? textPart + "\n\n" : "";
     const unchanged = replaced === content.slice(block.start, block.end);
     setContent((prev) =>
@@ -456,7 +456,8 @@ export default function Notebook({
   function handleMdEnter(block: FlatMdBlock, caret: number, source: string) {
     const { newSource, newCaret } = splitBlockEnter(source, caret);
     const clean = newSource.replace(/\n+$/, "");
-    const normalized = clean + "\n\n";
+    const trailing = newCaret > clean.length;
+    const normalized = trailing ? clean + "\n\n\u200B\n\n" : clean + "\n\n";
     const newContent =
       content.slice(0, block.start) + normalized + content.slice(block.end);
     setSaveState("dirty");
@@ -466,13 +467,22 @@ export default function Notebook({
       return;
     }
     setContent(newContent);
-    const trailing = newCaret > clean.length;
-    pendingRangeRef.current = {
-      start: block.start,
-      textLen: newCaret >= clean.length ? clean.length : newCaret + 1,
-      caret: block.start + newCaret,
-      trailing,
-    };
+    if (trailing) {
+      const newBlockStart = block.start + clean.length + 2;
+      pendingRangeRef.current = {
+        start: newBlockStart,
+        textLen: 1,
+        caret: newBlockStart,
+        trailing: false,
+      };
+    } else {
+      pendingRangeRef.current = {
+        start: block.start,
+        textLen: newCaret + 1,
+        caret: block.start + newCaret,
+        trailing: false,
+      };
+    }
   }
 
   function focusBlock(block: FlatMdBlock, caret: number) {

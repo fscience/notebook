@@ -11,8 +11,9 @@ interface Props {
 }
 
 export default function MarkdownView({ content, onNavigate }: Props) {
+  const clean = content.replace(/\u200B/g, "");
 
-  if (!content.trim()) {
+  if (!clean.trim()) {
     return <p className="text-muted italic">双击页面 Markdown 开始编写内容...</p>;
   }
 
@@ -74,7 +75,7 @@ export default function MarkdownView({ content, onNavigate }: Props) {
           },
         }}
       >
-        {content}
+        {clean}
       </ReactMarkdown>
     </div>
   );

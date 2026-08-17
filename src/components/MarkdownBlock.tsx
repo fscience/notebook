@@ -49,7 +49,14 @@ export default function MarkdownBlock({
   }, [focused, caretReq, source, contentPart]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    if (e.nativeEvent.isComposing) {
+      if (e.key === "Enter") e.preventDefault();
+      return;
+    }
+    if (e.key !== "Enter" || e.shiftKey) {
+      enterHandledRef.current = false;
+      return;
+    }
     e.preventDefault();
     const ta = e.currentTarget;
     enterHandledRef.current = true;
