@@ -673,15 +673,46 @@ export default function MarkdownBlock({
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("a")) return;
         onSelect();
-        const el = e.currentTarget;
-        const rect = el.getBoundingClientRect();
-        const ratio = Math.min(
-          Math.max((e.clientX - rect.left) / Math.max(rect.width, 1), 0),
-          1
-        );
-        onFocus(
-          Math.min(Math.round(ratio * source.length), contentPart.length)
-        );
+        const overlay = e.currentTarget.querySelector(".md-editor-overlay") as HTMLElement | null;
+        if (!overlay) {
+          onFocus(0);
+          return;
+        }
+        const probe = document.createElement("div");
+        probe.textContent = displayValue;
+        probe.style.cssText = [
+          "position:absolute",
+          "top:0",
+          "left:0",
+          "width:100%",
+          "white-space:pre-wrap",
+          "word-wrap:break-word",
+          "overflow-wrap:break-word",
+          "font:14px/1.7 var(--font-sans)",
+          "padding:4px 6px",
+          "margin:0",
+          "border:none",
+          "pointer-events:none",
+        ].join(";");
+        overlay.appendChild(probe);
+        let pos = contentPart.length;
+        const doc = document as unknown as {
+          caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+          caretRangeFromPoint?: (x: number, y: number) => Range | null;
+        };
+        if (doc.caretPositionFromPoint) {
+          const cp = doc.caretPositionFromPoint(e.clientX, e.clientY);
+          if (cp && probe.contains(cp.offsetNode)) {
+            pos = cp.offset;
+          }
+        } else if (doc.caretRangeFromPoint) {
+          const range = doc.caretRangeFromPoint(e.clientX, e.clientY);
+          if (range && probe.contains(range.startContainer)) {
+            pos = range.startOffset;
+          }
+        }
+        overlay.removeChild(probe);
+        onFocus(Math.min(pos, contentPart.length));
       }}
       onContextMenu={onContextMenu}
     >
