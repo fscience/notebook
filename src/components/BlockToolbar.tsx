@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Bold,
   Italic,
@@ -90,6 +90,31 @@ export default function BlockToolbar({ blockType, headingLevel, onFormat, onBloc
   const [activeGroup, setActiveGroup] = useState<"format" | "block">("format");
   const { formatting, blockOps } = getToolbarItems(blockType, headingLevel);
 
+  useLayoutEffect(() => {
+    if (!position || !ref.current) return;
+    const el = ref.current;
+    const h = el.offsetHeight;
+    const gap = 8;
+    const viewH = window.innerHeight;
+    const viewW = window.innerWidth;
+
+    // Prefer above, flip below if not enough room
+    let top: number;
+    if (position.top - h - gap >= 0) {
+      top = position.top - h - gap;
+    } else {
+      top = position.top + gap;
+    }
+    // Clamp to viewport
+    top = Math.max(0, Math.min(top, viewH - h));
+
+    // Clamp left to viewport
+    const left = Math.max(0, Math.min(position.left, viewW));
+
+    el.style.top = `${top}px`;
+    el.style.left = `${left}px`;
+  }, [position, activeGroup]);
+
   useEffect(() => {
     if (!position) return;
     function handleClickOutside(e: MouseEvent) {
@@ -109,7 +134,11 @@ export default function BlockToolbar({ blockType, headingLevel, onFormat, onBloc
     <div
       ref={ref}
       className="block-toolbar"
-      style={{ top: position.top, left: position.left }}
+      style={{
+        top: position.top,
+        left: position.left,
+        transform: "translateX(-50%)",
+      }}
     >
       <div className="block-toolbar-tabs">
         <button

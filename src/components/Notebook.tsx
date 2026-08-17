@@ -542,13 +542,13 @@ export default function Notebook({
 
   function editMdBlock(block: FlatMdBlock, newSource: string, caret?: number, opts?: { skipPendingRange?: boolean }) {
     const textPart = newSource.replace(/\n+$/, "").replace(/\u200B/g, "");
-    const replaced = textPart !== "" ? textPart + "\n\n" : "";
+    const replaced = textPart !== "" ? textPart + "\n\n" : "\n\n";
     pushUndo();
     setContent((prev) =>
       prev.slice(0, block.start) + replaced + prev.slice(block.end)
     );
     setSaveState("dirty");
-    if (opts?.skipPendingRange) {
+    if (textPart === "" || opts?.skipPendingRange) {
       if (caret != null) {
         setFocusedKey(block.key);
         setCaretReq({ at: caret, n: (caretReqRef.current?.n ?? 0) + 1 });
@@ -608,11 +608,12 @@ export default function Notebook({
 
   function selectBlock(key: string) {
     setSelectedKey(key);
-    const rect = document.querySelector(`[data-block-key="${key}"]`)?.getBoundingClientRect();
+    const el = document.querySelector(`[data-block-key="${key}"]`);
+    const rect = el?.getBoundingClientRect();
     if (rect) {
       setToolbar({
         visible: true,
-        position: { top: rect.top - 44, left: rect.left + rect.width / 2 },
+        position: { top: rect.top, left: rect.left + rect.width / 2 },
         blockKey: key,
       });
     }
