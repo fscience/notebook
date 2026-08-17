@@ -678,23 +678,36 @@ export default function MarkdownBlock({
           onFocus(0);
           return;
         }
+        const existingTa = overlay.querySelector("textarea.md-editor-textarea");
+        const refEl = existingTa || overlay;
+        const cs = getComputedStyle(refEl);
         const probe = document.createElement("div");
         probe.textContent = displayValue;
         probe.style.cssText = [
           "position:absolute",
           "top:0",
           "left:0",
-          "width:100%",
+          `width:${cs.width}`,
+          "box-sizing:border-box",
           "white-space:pre-wrap",
           "word-wrap:break-word",
           "overflow-wrap:break-word",
-          "font:14px/1.7 var(--font-sans)",
-          "padding:4px 6px",
-          "margin:0",
+          `font:${cs.font}`,
+          `font-family:${cs.fontFamily}`,
+          `font-size:${cs.fontSize}`,
+          `font-weight:${cs.fontWeight}`,
+          `font-style:${cs.fontStyle}`,
+          `letter-spacing:${cs.letterSpacing}`,
+          `word-spacing:${cs.wordSpacing}`,
+          `line-height:${cs.lineHeight}`,
+          `padding:${cs.padding}`,
+          `margin:${cs.margin}`,
           "border:none",
-          "pointer-events:none",
+          "tab-size:2",
+          "-moz-tab-size:2",
         ].join(";");
         overlay.appendChild(probe);
+        void probe.offsetHeight;
         let pos = contentPart.length;
         const doc = document as unknown as {
           caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
