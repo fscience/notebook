@@ -5,16 +5,22 @@ import type { CellOutput } from "@/lib/types";
 import type { RunBlockKind } from "@/lib/runblock";
 import { highlightPython, highlightShell } from "@/lib/highlight";
 import { Play, Stop, Trash, ChevronDown, ChevronUp, TerminalIcon } from "@/components/icons";
+import DragHandle from "@/components/DragHandle";
 
 interface Props {
   kind: RunBlockKind;
   code: string;
   output?: CellOutput;
   running: boolean;
+  selected: boolean;
   onEdit: (code: string) => void;
   onRun: () => void;
   onDelete: () => void;
   onToggleOutput: (collapsed: boolean) => void;
+  onSelect: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: (e: React.DragEvent) => void;
 }
 
 function OutputView({
@@ -96,10 +102,15 @@ export default function RunBlock({
   code,
   output,
   running,
+  selected,
   onEdit,
   onRun,
   onDelete,
   onToggleOutput,
+  onSelect,
+  onContextMenu,
+  onDragStart,
+  onDragEnd,
 }: Props) {
   const isPython = kind === "python";
 
@@ -109,67 +120,80 @@ export default function RunBlock({
   );
 
   return (
-    <div className="group rounded-lg border border-cell-border bg-cell-bg">
-      <div className="flex items-center gap-1 border-b border-cell-border px-2 py-1">
-        <span
-          className={`flex items-center gap-1 text-[11px] font-medium ${
-            isPython ? "text-code-label" : "text-shell-label"
-          }`}
-        >
-          {isPython ? <Play className="h-3 w-3" /> : <TerminalIcon className="h-3 w-3" />}
-          {isPython ? "Python" : "Shell"}
-        </span>
-        <span className="text-[10px] text-muted">
-          {isPython ? "```python-run" : "```shell-run"}
-        </span>
-        <div className="flex-1" />
-        <button
-          onClick={onRun}
-          disabled={running}
-          className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition ${
-            running
-              ? "bg-accent/15 text-accent"
-              : "bg-accent text-white hover:opacity-90"
-          }`}
-        >
-          {running ? (
-            <>
-              <Stop className="h-3 w-3 animate-pulse" /> 运行中...
-            </>
-          ) : (
-            <>
-              <Play className="h-3 w-3" /> 运行
-            </>
-          )}
-        </button>
-        <button
-          onClick={onDelete}
-          className="rounded p-1 text-muted opacity-0 hover:bg-danger/15 hover:text-danger group-hover:opacity-100"
-          title="删除该运行块"
-        >
-          <Trash className="h-3 w-3" />
-        </button>
+    <div
+      className={`group run-block-wrapper ${selected ? "selected" : ""}`}
+      onClick={onSelect}
+      onContextMenu={onContextMenu}
+    >
+      <DragHandle onDragStart={onDragStart} onDragEnd={onDragEnd} visible={selected} />
+      <div className="run-block-inner rounded-lg border border-cell-border bg-cell-bg">
+        <div className="flex items-center gap-1 border-b border-cell-border px-2 py-1">
+          <span
+            className={`flex items-center gap-1 text-[11px] font-medium ${
+              isPython ? "text-code-label" : "text-shell-label"
+            }`}
+          >
+            {isPython ? <Play className="h-3 w-3" /> : <TerminalIcon className="h-3 w-3" />}
+            {isPython ? "Python" : "Shell"}
+          </span>
+          <span className="text-[10px] text-muted">
+            {isPython ? "```python-run" : "```shell-run"}
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRun();
+            }}
+            disabled={running}
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition ${
+              running
+                ? "bg-accent/15 text-accent"
+                : "bg-accent text-white hover:opacity-90"
+            }`}
+          >
+            {running ? (
+              <>
+                <Stop className="h-3 w-3 animate-pulse" /> 运行中...
+              </>
+            ) : (
+              <>
+                <Play className="h-3 w-3" /> 运行
+              </>
+            )}
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="rounded p-1 text-muted opacity-0 hover:bg-danger/15 hover:text-danger group-hover:opacity-100"
+            title="删除该运行块"
+          >
+            <Trash className="h-3 w-3" />
+          </button>
+        </div>
+        <div className="code-editor">
+          <pre
+            aria-hidden
+            className="code-editor-pre"
+            dangerouslySetInnerHTML={{ __html: highlighted }}
+          />
+          <textarea
+            className="code-editor-input"
+            value={code}
+            onChange={(e) => onEdit(e.target.value)}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            placeholder={
+              isPython ? "# 在这里编写 Python 代码..." : "# 在这里输入 Shell 命令..."
+            }
+          />
+        </div>
+        {output && <OutputView output={output} onToggle={onToggleOutput} />}
       </div>
-      <div className="code-editor">
-        <pre
-          aria-hidden
-          className="code-editor-pre"
-          dangerouslySetInnerHTML={{ __html: highlighted }}
-        />
-        <textarea
-          className="code-editor-input"
-          value={code}
-          onChange={(e) => onEdit(e.target.value)}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoComplete="off"
-          autoCorrect="off"
-          placeholder={
-            isPython ? "# 在这里编写 Python 代码..." : "# 在这里输入 Shell 命令..."
-          }
-        />
-      </div>
-      {output && <OutputView output={output} onToggle={onToggleOutput} />}
     </div>
   );
 }

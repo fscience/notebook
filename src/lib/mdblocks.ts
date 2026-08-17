@@ -1,7 +1,22 @@
+export type MdBlockType =
+  | "paragraph"
+  | "heading"
+  | "bullet-list"
+  | "ordered-list"
+  | "blockquote"
+  | "fenced-code"
+  | "indented-code"
+  | "thematic-break"
+  | "table";
+
 export interface MarkdownBlock {
   source: string;
   start: number;
   end: number;
+  blockType: MdBlockType;
+  headingLevel?: number;
+  listMarker?: string;
+  fenceChar?: string;
 }
 
 const BLANK_RE = /^[ \t]*$/;
@@ -33,13 +48,15 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
   }
   const blocks: MarkdownBlock[] = [];
 
-  const single = (i: number) => ({
+  const single = (i: number, extra?: Partial<MarkdownBlock>) => ({
     source: lines[i],
     start: lineStart[i],
     end:
       lineStart[i] +
       lines[i].length +
       (i < lines.length - 1 ? 1 : 0),
+    blockType: "paragraph" as MdBlockType,
+    ...extra,
   });
 
   const rangeEnd = (lastIdx: number) =>
@@ -69,17 +86,20 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
         source: lines.slice(i, j + 1).join("\n"),
         start: lineStart[i],
         end: rangeEnd(j),
+        blockType: "fenced-code",
+        fenceChar: ch,
       });
       i = j + 1;
       continue;
     }
     if (ATX_RE.test(line)) {
-      blocks.push(single(i));
+      const level = /^ {0,3}(#{1,6})/.exec(line)?.[1]?.length ?? 1;
+      blocks.push(single(i, { blockType: "heading", headingLevel: level }));
       i++;
       continue;
     }
     if (THEMATIC_RE.test(line)) {
-      blocks.push(single(i));
+      blocks.push(single(i, { blockType: "thematic-break" }));
       i++;
       continue;
     }
@@ -90,6 +110,7 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
         source: lines.slice(i, j).join("\n"),
         start: lineStart[i],
         end: rangeEnd(j - 1),
+        blockType: "blockquote",
       });
       i = j;
       continue;
@@ -97,6 +118,7 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
     if (LIST_ITEM_RE.test(line)) {
       const baseIndent = leadingSpaces(line);
       const family = itemFamily(line);
+      const marker = /^ {0,3}([-+*]|\d{1,9}[.)])[ \t]+/.exec(line)?.[1] ?? "";
       const listLines = [line];
       let j = i + 1;
       while (j < lines.length) {
@@ -132,6 +154,8 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
         source: listLines.join("\n"),
         start: lineStart[i],
         end: rangeEnd(j - 1),
+        blockType: family === "ordered" ? "ordered-list" : "bullet-list",
+        listMarker: marker,
       });
       i = j;
       continue;
@@ -146,7 +170,7 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
         j++;
       }
       if (j <= i) {
-        blocks.push(single(i));
+        blocks.push(single(i, { blockType: "paragraph" }));
         i++;
         continue;
       }
@@ -154,6 +178,7 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
         source: lines.slice(i, j).join("\n"),
         start: lineStart[i],
         end: rangeEnd(j - 1),
+        blockType: "indented-code",
       });
       i = j;
       continue;
@@ -187,6 +212,7 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
       source: paraLines.join("\n"),
       start: lineStart[i],
       end: rangeEnd(j - 1),
+      blockType: "paragraph",
     });
     i = j;
   }
@@ -194,7 +220,7 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
   for (let k = 0; k < blocks.length; k++) {
     const start = blocks[k].start;
     const end = k + 1 < blocks.length ? blocks[k + 1].start : src.length;
-    blocks[k] = { source: src.slice(start, end), start, end };
+    blocks[k] = { ...blocks[k], source: src.slice(start, end), start, end };
   }
 
   return blocks;
