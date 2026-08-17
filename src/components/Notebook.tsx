@@ -481,7 +481,8 @@ export default function Notebook({
       return next;
     });
     setSaveState("dirty");
-    const prevBlock = mdBlocks.find((b) => b.end <= block.start);
+    const candidates = mdBlocks.filter((b) => b.end <= block.start);
+    const prevBlock = candidates.length > 0 ? candidates[candidates.length - 1] : null;
     if (prevBlock) {
       const caret = prevBlock.source.replace(/\n+$/, "").length;
       setFocusedKey(prevBlock.key);
