@@ -34,12 +34,14 @@ export default function MarkdownBlock({
   const taRef = useRef<HTMLTextAreaElement>(null);
   const applied = useRef(-1);
   const enterHandledRef = useRef(false);
+  const composingRef = useRef(false);
 
   const contentPart = source.replace(/\n+$/, "");
 
   useEffect(() => {
     if (!focused || !taRef.current || !caretReq) return;
     if (caretReq.n === applied.current) return;
+    if (composingRef.current) return;
     const ta = taRef.current;
     if (document.activeElement !== ta) ta.focus();
     const display = caretReq.at > contentPart.length ? source : contentPart;
@@ -71,12 +73,15 @@ export default function MarkdownBlock({
         ref={taRef}
         value={displayValue}
         onChange={(e) => {
+          if ((e.nativeEvent as InputEvent).isComposing) return;
           if (enterHandledRef.current) {
             enterHandledRef.current = false;
             return;
           }
           onEdit(e.target.value, e.target.selectionStart);
         }}
+        onCompositionStart={() => { composingRef.current = true; }}
+        onCompositionEnd={() => { composingRef.current = false; }}
         onKeyDown={handleKeyDown}
         onBlur={onBlur}
         rows={Math.max(1, displayValue.split("\n").length)}
