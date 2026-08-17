@@ -306,7 +306,8 @@ export default function MarkdownBlock({
   const displayValue = useMemo(() => {
     const showTrailing = caretReq != null && caretReq.at > contentPart.length;
     return showTrailing ? source : contentPart;
-  }, [source, contentPart, caretReq]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- caretReq intentionally excluded: including it would reset textarea cursor on every keystroke
+  }, [source, contentPart]);
 
   const highlightedHtml = useMemo(() => highlightMarkdown(displayValue), [displayValue]);
 
@@ -538,13 +539,22 @@ export default function MarkdownBlock({
     const newValue = e.target.value;
     const caretPos = e.target.selectionStart;
 
-    if (!prevSlashRef.current && newValue === "/") {
+    const charBefore = caretPos > 0 ? newValue[caretPos - 1] : "";
+    const lineStart = newValue.lastIndexOf("\n", caretPos - 1) + 1;
+    const textBeforeCursor = newValue.slice(lineStart, caretPos);
+    const isAtLineStart = textBeforeCursor === "/";
+
+    if (
+      !prevSlashRef.current &&
+      charBefore === "/" &&
+      isAtLineStart
+    ) {
       const rect = taRef.current?.getBoundingClientRect();
       if (rect) {
         onSlashTrigger({ top: rect.bottom + 4, left: rect.left });
       }
     }
-    prevSlashRef.current = newValue === "/" && caretPos === 1;
+    prevSlashRef.current = charBefore === "/" && isAtLineStart;
 
     onEdit(newValue, caretPos);
   }

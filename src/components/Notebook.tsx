@@ -540,18 +540,19 @@ export default function Notebook({
     setDocOutput(seg.key, { ...output, collapsed });
   }
 
-  function editMdBlock(block: FlatMdBlock, newSource: string, caret?: number) {
+  function editMdBlock(block: FlatMdBlock, newSource: string, caret?: number, opts?: { skipPendingRange?: boolean }) {
     const textPart = newSource.replace(/\n+$/, "").replace(/\u200B/g, "");
     const replaced = textPart !== "" ? textPart + "\n\n" : "";
-    const unchanged = replaced === content.slice(block.start, block.end);
     pushUndo();
     setContent((prev) =>
       prev.slice(0, block.start) + replaced + prev.slice(block.end)
     );
     setSaveState("dirty");
-    if (unchanged && caret != null) {
-      setFocusedKey(block.key);
-      setCaretReq({ at: caret, n: (caretReqRef.current?.n ?? 0) + 1 });
+    if (opts?.skipPendingRange) {
+      if (caret != null) {
+        setFocusedKey(block.key);
+        setCaretReq({ at: caret, n: (caretReqRef.current?.n ?? 0) + 1 });
+      }
     } else {
       pendingRangeRef.current = {
         start: block.start,
@@ -1007,7 +1008,7 @@ export default function Notebook({
                         focusedKey === item.block.key ? caretReq : null
                       }
                       onFocus={(caret) => focusBlock(item.block, caret)}
-                      onEdit={(src, caret) => editMdBlock(item.block, src, caret)}
+                      onEdit={(src, caret) => editMdBlock(item.block, src, caret, { skipPendingRange: true })}
                       onEnter={(caret, source) => handleMdEnter(item.block, caret, source)}
                       onBlur={blurBlock}
                       onSelect={() => selectBlock(item.block.key)}
