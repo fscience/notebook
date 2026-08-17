@@ -474,6 +474,24 @@ export default function Notebook({
     });
   }
 
+  function deleteMdBlock(block: FlatMdBlock) {
+    pushUndo();
+    setContent((prev) => {
+      const next = prev.slice(0, block.start) + prev.slice(block.end);
+      return next;
+    });
+    setSaveState("dirty");
+    const prevBlock = mdBlocks.find((b) => b.end <= block.start);
+    if (prevBlock) {
+      const caret = prevBlock.source.replace(/\n+$/, "").length;
+      setFocusedKey(prevBlock.key);
+      setCaretReq({ at: caret, n: (caretReqRef.current?.n ?? 0) + 1 });
+    } else {
+      setFocusedKey(null);
+      setSelectedKey(null);
+    }
+  }
+
   async function runBlock(seg: RunSegment) {
     if (runningKey != null) return;
     setRunningKey(seg.key);
@@ -533,7 +551,7 @@ export default function Notebook({
 
   function editMdBlock(block: FlatMdBlock, newSource: string, caret?: number, opts?: { skipPendingRange?: boolean }) {
     const textPart = newSource.replace(/\n+$/, "").replace(/\u200B/g, "");
-    const replaced = textPart !== "" ? textPart + "\n\n" : "\n\n";
+    const replaced = textPart !== "" ? textPart + "\n\n" : "\u200B\n\n";
     pushUndo();
     setContent((prev) =>
       prev.slice(0, block.start) + replaced + prev.slice(block.end)
@@ -948,6 +966,7 @@ export default function Notebook({
                         setSelectedKey(item.block.key);
                         handleContextAction(action as ContextMenuAction);
                       }}
+                      onBackspaceEmpty={() => deleteMdBlock(item.block)}
                     />
                   </div>
                 ) : (

@@ -27,6 +27,7 @@ interface Props {
   onDragEnd: (e: React.DragEvent) => void;
   onSlashTrigger: (position: { top: number; left: number }) => void;
   onBlockAction?: (action: string) => void;
+  onBackspaceEmpty?: () => void;
   placeholder?: string;
 }
 
@@ -308,6 +309,7 @@ export default function MarkdownBlock({
   onDragEnd,
   onSlashTrigger,
   onBlockAction,
+  onBackspaceEmpty,
   placeholder,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -561,6 +563,15 @@ export default function MarkdownBlock({
         onEdit(newValue, start + 2);
       }
       return;
+    }
+
+    if (e.key === "Backspace" && onBackspaceEmpty) {
+      const visible = ta.value.replace(/\u200B/g, "").replace(/\n+$/, "");
+      if (visible === "" && ta.selectionStart === 0 && ta.selectionEnd === 0) {
+        e.preventDefault();
+        onBackspaceEmpty();
+        return;
+      }
     }
 
     if (e.key !== "Enter" || e.shiftKey) {
