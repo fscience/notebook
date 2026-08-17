@@ -571,6 +571,7 @@ export default function MarkdownBlock({
         clearTimeout(compositionFallbackRef.current);
         compositionFallbackRef.current = null;
       }
+      onEdit(e.target.value, e.target.selectionStart);
       return;
     }
     if (enterHandledRef.current) {
