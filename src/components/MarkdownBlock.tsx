@@ -35,6 +35,7 @@ export default function MarkdownBlock({
   const applied = useRef(-1);
   const enterHandledRef = useRef(false);
   const composingRef = useRef(false);
+  const compositionHandledRef = useRef(false);
 
   const contentPart = source.replace(/\n+$/, "");
 
@@ -73,15 +74,28 @@ export default function MarkdownBlock({
         ref={taRef}
         value={displayValue}
         onChange={(e) => {
-          if ((e.nativeEvent as InputEvent).isComposing) return;
+          if (composingRef.current) return;
+          if (compositionHandledRef.current) {
+            compositionHandledRef.current = false;
+            return;
+          }
           if (enterHandledRef.current) {
             enterHandledRef.current = false;
             return;
           }
           onEdit(e.target.value, e.target.selectionStart);
         }}
-        onCompositionStart={() => { composingRef.current = true; }}
-        onCompositionEnd={() => { composingRef.current = false; }}
+        onCompositionStart={() => {
+          composingRef.current = true;
+          compositionHandledRef.current = false;
+        }}
+        onCompositionEnd={() => {
+          composingRef.current = false;
+          compositionHandledRef.current = true;
+          if (taRef.current) {
+            onEdit(taRef.current.value, taRef.current.selectionStart);
+          }
+        }}
         onKeyDown={handleKeyDown}
         onBlur={onBlur}
         rows={Math.max(1, displayValue.split("\n").length)}

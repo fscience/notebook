@@ -472,14 +472,14 @@ export default function Notebook({
       pendingRangeRef.current = {
         start: newBlockStart,
         textLen: 1,
-        caret: newBlockStart,
+        caret: 0,
         trailing: false,
       };
     } else {
       pendingRangeRef.current = {
         start: block.start,
-        textLen: newCaret + 1,
-        caret: block.start + newCaret,
+        textLen: normalized.length,
+        caret: newCaret,
         trailing: false,
       };
     }
