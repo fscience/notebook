@@ -389,23 +389,213 @@ body {
   min-width: 0;
 }
 
-.md-block-editor {
-  width: 100%;
-  resize: none;
-  border-radius: 6px;
-  border: 1px solid var(--accent);
-  background: var(--cell-bg);
-  padding: 6px 8px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
+/* Markdown overlay editor (OverType pattern) */
+.md-editor-overlay {
+  position: relative;
+  min-height: 1.7em;
+  flex: 1;
+  min-width: 0;
+}
+
+.md-editor-highlight,
+.md-editor-textarea {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  padding: 4px 6px;
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+
+.md-editor-highlight {
+  pointer-events: none;
   color: var(--foreground);
+  min-height: 1.7em;
+}
+
+.md-editor-textarea {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  overflow: hidden;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--foreground);
+  outline: none;
+  z-index: 1;
+}
+
+.md-editor-textarea:focus {
   outline: none;
 }
 
-.md-block-editor::placeholder {
+.md-editor-textarea::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  -webkit-text-fill-color: transparent;
+}
+
+.md-editor-textarea::placeholder {
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+  opacity: 0.6;
+}
+
+.md-editor-placeholder-text {
+  position: absolute;
+  top: 4px;
+  left: 6px;
   color: var(--muted);
   opacity: 0.6;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.7;
+  pointer-events: none;
+  margin: 0;
+}
+
+/* Floating formatting toolbar */
+.floating-toolbar {
+  position: fixed;
+  z-index: 1003;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--cell-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08);
+  padding: 3px;
+  animation: fadeInUp 0.12s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.floating-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--foreground);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.floating-toolbar-btn:hover {
+  background: var(--hover);
+}
+
+.floating-toolbar-btn:active {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.floating-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--panel-border);
+  margin: 0 2px;
+}
+
+/* Markdown syntax highlighting in editor overlay */
+.hl-heading {
+  font-weight: 600;
+}
+
+.hl-h1 {
+  color: var(--accent);
+  font-size: 1.4em;
+}
+
+.hl-h2 {
+  color: var(--accent);
+  font-size: 1.2em;
+}
+
+.hl-h3 {
+  color: var(--accent);
+  font-size: 1.1em;
+}
+
+.hl-h4,
+.hl-h5,
+.hl-h6 {
+  color: var(--accent);
+}
+
+.hl-bold {
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.hl-bold-italic {
+  font-weight: 700;
+  font-style: italic;
+  color: var(--foreground);
+}
+
+.hl-italic {
+  font-style: italic;
+  color: var(--foreground);
+}
+
+.hl-strikethrough {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.hl-inline-code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.hl-fence {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.hl-blockquote {
+  color: var(--muted);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  padding-left: 8px;
+}
+
+.hl-link {
+  color: var(--accent);
+}
+
+.hl-list-marker {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.hl-hr {
+  color: var(--muted);
+  border-top: 1px solid var(--panel-border);
+  margin: 4px 0;
 }
 
 /* Drag handle */
