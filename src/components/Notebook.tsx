@@ -6,7 +6,6 @@ import type { CellOutput, Document } from "@/lib/types";
 import MarkdownBlock from "@/components/MarkdownBlock";
 import type { CaretRequest } from "@/components/MarkdownBlock";
 import RunBlock from "@/components/RunBlock";
-import BlockToolbar from "@/components/BlockToolbar";
 import SlashMenu, { type SlashCommandKind } from "@/components/SlashMenu";
 import BlockContextMenu, { type ContextMenuAction } from "@/components/BlockContextMenu";
 import { ChevronLeft } from "@/components/icons";
@@ -46,12 +45,6 @@ interface FlatMdBlock extends MdBlock {
 
 type RenderItem = { t: "md"; block: FlatMdBlock } | { t: "run"; seg: RunSegment };
 
-interface ToolbarState {
-  visible: boolean;
-  position: { top: number; left: number } | null;
-  blockKey: string;
-}
-
 interface SlashState {
   open: boolean;
   query: string;
@@ -87,7 +80,6 @@ export default function Notebook({
   const [caretReq, setCaretReq] = useState<CaretRequest | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [toolbar, setToolbar] = useState<ToolbarState>({ visible: false, position: null, blockKey: "" });
   const [slash, setSlash] = useState<SlashState>({ open: false, query: "", position: { top: 0, left: 0 } });
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({ open: false, position: { x: 0, y: 0 }, blockKey: "" });
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
@@ -224,7 +216,6 @@ export default function Notebook({
         redo();
       } else if (e.key === "Escape") {
         setSelectedKey(null);
-        setToolbar({ visible: false, position: null, blockKey: "" });
         setSlash({ open: false, query: "", position: { top: 0, left: 0 } });
         setContextMenu({ open: false, position: { x: 0, y: 0 }, blockKey: "" });
       }
@@ -608,15 +599,6 @@ export default function Notebook({
 
   function selectBlock(key: string) {
     setSelectedKey(key);
-    const el = document.querySelector(`[data-block-key="${key}"]`);
-    const rect = el?.getBoundingClientRect();
-    if (rect) {
-      setToolbar({
-        visible: true,
-        position: { top: rect.top, left: rect.left + rect.width / 2 },
-        blockKey: key,
-      });
-    }
   }
 
   function appendParagraph() {
@@ -867,62 +849,6 @@ export default function Notebook({
     }
   }
 
-  function handleToolbarFormat(action: string) {
-    const key = toolbar.blockKey;
-    if (!key) return;
-    const mdBlock = mdBlocks.find((b) => b.key === key);
-    if (!mdBlock) return;
-
-    pushUndo();
-    const text = mdBlock.source.replace(/\n+$/, "");
-    let newSource = text;
-
-    switch (action) {
-      case "bold": newSource = "**" + text + "**"; break;
-      case "italic": newSource = "*" + text + "*"; break;
-      case "strikethrough": newSource = "~~" + text + "~~"; break;
-      case "code": newSource = "`" + text + "`"; break;
-      case "heading-1": newSource = "# " + text.replace(/^#{1,6}\s*/, ""); break;
-      case "heading-2": newSource = "## " + text.replace(/^#{1,6}\s*/, ""); break;
-      case "heading-3": newSource = "### " + text.replace(/^#{1,6}\s*/, ""); break;
-      case "paragraph": newSource = text.replace(/^#{1,6}\s*/, ""); break;
-      case "bullet-list": newSource = "- " + text.replace(/^[-+*]\s*/, ""); break;
-      case "ordered-list": newSource = "1. " + text.replace(/^\d+[.)]\s*/, ""); break;
-      case "blockquote": newSource = "> " + text.replace(/^>\s*/, ""); break;
-      default: return;
-    }
-
-    setContent((prev) =>
-      prev.slice(0, mdBlock.start) + newSource + "\n\n" + prev.slice(mdBlock.end)
-    );
-    setSaveState("dirty");
-  }
-
-  function handleToolbarBlockAction(action: string) {
-    if (action === "__close__") {
-      setToolbar({ visible: false, position: null, blockKey: "" });
-      return;
-    }
-    const key = toolbar.blockKey;
-    if (!key) return;
-
-    switch (action) {
-      case "move-up":
-      case "move-down":
-      case "duplicate":
-      case "delete":
-      case "insert-python":
-      case "insert-shell":
-      case "copy-markdown":
-      case "format-bold":
-      case "format-italic":
-      case "format-code": {
-        handleContextAction(action as ContextMenuAction);
-        break;
-      }
-    }
-  }
-
   function handleDragStart(e: React.DragEvent, key: string) {
     dragSourceKeyRef.current = key;
     e.dataTransfer.effectAllowed = "move";
@@ -1018,6 +944,10 @@ export default function Notebook({
                       onDragStart={(e) => handleDragStart(e, item.block.key)}
                       onDragEnd={handleDragEnd}
                       onSlashTrigger={handleSlashTrigger}
+                      onBlockAction={(action) => {
+                        setSelectedKey(item.block.key);
+                        handleContextAction(action as ContextMenuAction);
+                      }}
                     />
                   </div>
                 ) : (
@@ -1060,24 +990,6 @@ export default function Notebook({
           </div>
         )}
       </div>
-
-      {toolbar.visible && (
-        <BlockToolbar
-          blockType={
-            (() => {
-              const mdBlock = mdBlocks.find((b) => b.key === toolbar.blockKey);
-              if (mdBlock) return mdBlock.blockType;
-              const runItem = renderItems.find((i): i is { t: "run"; seg: RunSegment } => i.t === "run" && i.seg.key === toolbar.blockKey);
-              if (runItem) return runItem.seg.kind;
-              return "paragraph";
-            })()
-          }
-          headingLevel={mdBlocks.find((b) => b.key === toolbar.blockKey)?.headingLevel}
-          onFormat={handleToolbarFormat}
-          onBlockAction={handleToolbarBlockAction}
-          position={toolbar.position}
-        />
-      )}
 
       <SlashMenu
         open={slash.open}

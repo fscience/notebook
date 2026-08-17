@@ -26,6 +26,7 @@ interface Props {
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: (e: React.DragEvent) => void;
   onSlashTrigger: (position: { top: number; left: number }) => void;
+  onBlockAction?: (action: string) => void;
   placeholder?: string;
 }
 
@@ -159,59 +160,60 @@ function highlightMarkdown(text: string): string {
 interface FloatingToolbarProps {
   containerRef: React.RefObject<HTMLDivElement | null>;
   onApply: (action: string) => void;
+  onBlockAction?: (action: string) => void;
 }
 
-function FloatingToolbar({ containerRef, onApply }: FloatingToolbarProps) {
+function FloatingToolbar({ containerRef, onApply, onBlockAction }: FloatingToolbarProps) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const ta = container.querySelector<HTMLTextAreaElement>("textarea");
-    if (!ta) return;
-    const textarea = ta;
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
+    if (!textarea) return;
+    const ta = textarea;
 
     function check() {
       if (
-        textarea.selectionStart !== textarea.selectionEnd &&
-        document.activeElement === textarea
+        ta.selectionStart !== ta.selectionEnd &&
+        document.activeElement === ta
       ) {
-        const start = Math.min(textarea.selectionStart, textarea.selectionEnd);
-        const end = Math.max(textarea.selectionStart, textarea.selectionEnd);
-        const text = textarea.value.substring(start, end);
+        const start = Math.min(ta.selectionStart, ta.selectionEnd);
+        const end = Math.max(ta.selectionStart, ta.selectionEnd);
+        const text = ta.value.substring(start, end);
         if (text.trim().length === 0) {
           setVisible(false);
           return;
         }
 
-        const beforeText = textarea.value.substring(0, start);
+        const beforeText = ta.value.substring(0, start);
         const linesBefore = beforeText.split("\n");
         const lineIndex = linesBefore.length - 1;
         const charOnLine = linesBefore[lineIndex]?.length || 0;
 
         const lineHeight = 22.4;
         const charWidth = 7.8;
-        const top = textarea.getBoundingClientRect().top + lineIndex * lineHeight - 40;
-        const left =
-          textarea.getBoundingClientRect().left + Math.min(charOnLine * charWidth, 200);
+        const taRect = ta.getBoundingClientRect();
+        const top = taRect.top + lineIndex * lineHeight - 48;
+        const left = taRect.left + Math.min(charOnLine * charWidth, 200);
 
-        setPos({ top, left });
+        setPos({ top: Math.max(0, top), left });
         setVisible(true);
       } else {
         setVisible(false);
       }
     }
 
-    textarea.addEventListener("select", check);
-    textarea.addEventListener("input", check);
-    textarea.addEventListener("keyup", check);
-    textarea.addEventListener("click", check);
+    ta.addEventListener("select", check);
+    ta.addEventListener("input", check);
+    ta.addEventListener("keyup", check);
+    ta.addEventListener("click", check);
     return () => {
-      textarea.removeEventListener("select", check);
-      textarea.removeEventListener("input", check);
-      textarea.removeEventListener("keyup", check);
-      textarea.removeEventListener("click", check);
+      ta.removeEventListener("select", check);
+      ta.removeEventListener("input", check);
+      ta.removeEventListener("keyup", check);
+      ta.removeEventListener("click", check);
     };
   }, [containerRef]);
 
@@ -223,54 +225,69 @@ function FloatingToolbar({ containerRef, onApply }: FloatingToolbarProps) {
       style={{ top: pos.top, left: pos.left }}
       onMouseDown={(e) => e.preventDefault()}
     >
-      <button
-        className="floating-toolbar-btn"
-        title="加粗 (Ctrl+B)"
-        onClick={() => onApply("bold")}
-      >
-        <strong>B</strong>
-      </button>
-      <button
-        className="floating-toolbar-btn"
-        title="斜体 (Ctrl+I)"
-        onClick={() => onApply("italic")}
-      >
-        <em>I</em>
-      </button>
-      <button
-        className="floating-toolbar-btn"
-        title="行内代码"
-        onClick={() => onApply("code")}
-      >
-        <code className="text-xs">&lt;/&gt;</code>
-      </button>
-      <button
-        className="floating-toolbar-btn"
-        title="删除线"
-        onClick={() => onApply("strikethrough")}
-      >
-        <span className="line-through text-xs font-mono">S</span>
-      </button>
-      <div className="floating-toolbar-divider" />
-      <button
-        className="floating-toolbar-btn"
-        title="链接"
-        onClick={() => onApply("link")}
-      >
-        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-          <path d="M6.82 5.57a2.5 2.5 0 0 1 3.54 3.54l-2.12 2.13a2.5 2.5 0 0 1-3.54-3.54l.18-.18a.75.75 0 0 1 1.06 1.06l-.18.18a1 1 0 0 0 1.42 1.42l2.12-2.13a1 1 0 0 0-1.42-1.42L6.82 5.57ZM9.18 10.43a2.5 2.5 0 0 1-3.54-3.54l2.12-2.13a2.5 2.5 0 0 1 3.54 3.54l-.18.18a.75.75 0 0 1-1.06-1.06l.18-.18a1 1 0 0 0-1.42-1.42L6.16 6.97a1 1 0 0 0 1.42 1.42l2.13-2.13a1 1 0 0 0-1.42-1.42L6.16 5.57" />
-        </svg>
-      </button>
-      <div className="floating-toolbar-divider" />
-      <button
-        className="floating-toolbar-btn"
-        title="引用"
-        onClick={() => onApply("blockquote")}
-      >
-        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-          <path d="M3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5Zm0 4a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5Zm0 4a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5Z" />
-        </svg>
-      </button>
+      <div className="floating-toolbar-row">
+        <button className="floating-toolbar-btn" title="加粗 (Ctrl+B)" onClick={() => onApply("bold")}>
+          <strong>B</strong>
+        </button>
+        <button className="floating-toolbar-btn" title="斜体 (Ctrl+I)" onClick={() => onApply("italic")}>
+          <em>I</em>
+        </button>
+        <button className="floating-toolbar-btn" title="行内代码" onClick={() => onApply("code")}>
+          <code className="text-xs">&lt;/&gt;</code>
+        </button>
+        <button className="floating-toolbar-btn" title="删除线" onClick={() => onApply("strikethrough")}>
+          <span className="line-through text-xs font-mono">S</span>
+        </button>
+        <div className="floating-toolbar-divider" />
+        <button className="floating-toolbar-btn" title="链接" onClick={() => onApply("link")}>
+          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+            <path d="M6.82 5.57a2.5 2.5 0 0 1 3.54 3.54l-2.12 2.13a2.5 2.5 0 0 1-3.54-3.54l.18-.18a.75.75 0 0 1 1.06 1.06l-.18.18a1 1 0 0 0 1.42 1.42l2.12-2.13a1 1 0 0 0-1.42-1.42L6.82 5.57ZM9.18 10.43a2.5 2.5 0 0 1-3.54-3.54l2.12-2.13a2.5 2.5 0 0 1 3.54 3.54l-.18.18a.75.75 0 0 1-1.06-1.06l.18-.18a1 1 0 0 0-1.42-1.42L6.16 6.97a1 1 0 0 0 1.42 1.42l2.13-2.13a1 1 0 0 0-1.42-1.42L6.16 5.57" />
+          </svg>
+        </button>
+      </div>
+      <div className="floating-toolbar-row">
+        <button className="floating-toolbar-btn" title="标题 1" onClick={() => onApply("heading-1")}>
+          <span className="text-xs font-bold">H1</span>
+        </button>
+        <button className="floating-toolbar-btn" title="标题 2" onClick={() => onApply("heading-2")}>
+          <span className="text-xs font-bold">H2</span>
+        </button>
+        <button className="floating-toolbar-btn" title="标题 3" onClick={() => onApply("heading-3")}>
+          <span className="text-xs font-bold">H3</span>
+        </button>
+        <button className="floating-toolbar-btn" title="正文" onClick={() => onApply("paragraph")}>
+          <span className="text-xs font-bold">P</span>
+        </button>
+        <div className="floating-toolbar-divider" />
+        <button className="floating-toolbar-btn" title="无序列表" onClick={() => onApply("bullet-list")}>
+          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><circle cx="2" cy="4" r="1.2" /><circle cx="2" cy="8" r="1.2" /><circle cx="2" cy="12" r="1.2" /><rect x="5" y="3.2" width="9" height="1.6" rx=".8" /><rect x="5" y="7.2" width="9" height="1.6" rx=".8" /><rect x="5" y="11.2" width="9" height="1.6" rx=".8" /></svg>
+        </button>
+        <button className="floating-toolbar-btn" title="有序列表" onClick={() => onApply("ordered-list")}>
+          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><text x="0" y="5.5" fontSize="5" fontWeight="600">1.</text><text x="0" y="9.5" fontSize="5" fontWeight="600">2.</text><text x="0" y="13.5" fontSize="5" fontWeight="600">3.</text><rect x="5" y="3.2" width="9" height="1.6" rx=".8" /><rect x="5" y="7.2" width="9" height="1.6" rx=".8" /><rect x="5" y="11.2" width="9" height="1.6" rx=".8" /></svg>
+        </button>
+        <button className="floating-toolbar-btn" title="引用" onClick={() => onApply("blockquote")}>
+          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+            <path d="M3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5Zm0 4a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5Zm0 4a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5Z" />
+          </svg>
+        </button>
+        {onBlockAction && (
+          <>
+            <div className="floating-toolbar-divider" />
+            <button className="floating-toolbar-btn" title="上移" onClick={() => onBlockAction("move-up")}>
+              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path d="M8 3.5l-4 4h3v5h2v-5h3l-4-4z" /></svg>
+            </button>
+            <button className="floating-toolbar-btn" title="下移" onClick={() => onBlockAction("move-down")}>
+              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path d="M8 12.5l4-4h-3v-5H7v5H4l4 4z" /></svg>
+            </button>
+            <button className="floating-toolbar-btn" title="复制块" onClick={() => onBlockAction("duplicate")}>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5"><rect x="5" y="5" width="8" height="8" rx="1.5" /><path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" /></svg>
+            </button>
+            <button className="floating-toolbar-btn danger" title="删除块" onClick={() => onBlockAction("delete")}>
+              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path d="M6 1.5h4a1.5 1.5 0 0 1 1.5 1.5v.5h2.25a.75.75 0 0 1 0 1.5h-.31l-.6 9.06A1.5 1.5 0 0 1 11.35 16H4.65a1.5 1.5 0 0 1-1.49-1.44l-.6-9.06h-.31a.75.75 0 0 1 0-1.5H4.5V3A1.5 1.5 0 0 1 6 1.5Z" /></svg>
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -290,6 +307,7 @@ export default function MarkdownBlock({
   onDragStart,
   onDragEnd,
   onSlashTrigger,
+  onBlockAction,
   placeholder,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -300,7 +318,6 @@ export default function MarkdownBlock({
   const composingRef = useRef(false);
   const compositionFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSlashRef = useRef(false);
-  const [showToolbar, setShowToolbar] = useState(false);
 
   const contentPart = source.replace(/\n+$/, "");
   const displayValue = useMemo(() => {
@@ -431,11 +448,36 @@ export default function MarkdownBlock({
           });
           break;
         }
+        case "heading-1":
+        case "heading-2":
+        case "heading-3":
+        case "paragraph":
+        case "bullet-list":
+        case "ordered-list":
         case "blockquote": {
           const lineStart = value.lastIndexOf("\n", start - 1) + 1;
-          const newValue =
-            value.substring(0, lineStart) + "> " + value.substring(lineStart);
-          onEdit(newValue, start + 2);
+          const lineEnd = value.indexOf("\n", start);
+          const actualEnd = lineEnd === -1 ? value.length : lineEnd;
+          const line = value.substring(lineStart, actualEnd);
+          const clean = line
+            .replace(/^#{1,6}\s*/, "")
+            .replace(/^[-+*]\s*/, "")
+            .replace(/^\d+[.)]\s*/, "")
+            .replace(/^>\s*/, "");
+          let prefix = "";
+          switch (action) {
+            case "heading-1": prefix = "# "; break;
+            case "heading-2": prefix = "## "; break;
+            case "heading-3": prefix = "### "; break;
+            case "paragraph": prefix = ""; break;
+            case "bullet-list": prefix = "- "; break;
+            case "ordered-list": prefix = "1. "; break;
+            case "blockquote": prefix = "> "; break;
+          }
+          const newLine = prefix + clean;
+          const newValue = value.substring(0, lineStart) + newLine + value.substring(actualEnd);
+          const delta = newLine.length - line.length;
+          onEdit(newValue, start + delta);
           requestAnimationFrame(() => ta.focus());
           break;
         }
@@ -597,21 +639,17 @@ export default function MarkdownBlock({
             onInput={syncScroll}
             onScroll={syncScroll}
             onBlur={onBlur}
-            onClick={() => {
-              onSelect();
-              setShowToolbar(false);
-            }}
+            onClick={onSelect}
             onContextMenu={onContextMenu}
             spellCheck={false}
             className="md-editor-textarea"
             placeholder={placeholder ?? "开始编写 Markdown..."}
           />
-          {showToolbar && (
-            <FloatingToolbar
-              containerRef={containerRef}
-              onApply={handleToolbarAction}
-            />
-          )}
+          <FloatingToolbar
+            containerRef={containerRef}
+            onApply={handleToolbarAction}
+            onBlockAction={onBlockAction}
+          />
         </div>
       </div>
     );
