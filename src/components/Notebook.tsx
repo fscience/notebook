@@ -9,6 +9,7 @@ import RunBlock from "@/components/RunBlock";
 import { ChevronLeft } from "@/components/icons";
 import { ROOT_DOC_NAME } from "@/lib/wiki";
 import { splitMarkdownBlocks, type MarkdownBlock as MdBlock } from "@/lib/mdblocks";
+import { splitBlockEnter } from "@/lib/mdblocks";
 import {
   parseContent,
   serializeBlock,
@@ -452,6 +453,28 @@ export default function Notebook({
     }
   }
 
+  function handleMdEnter(block: FlatMdBlock, caret: number, source: string) {
+    const { newSource, newCaret } = splitBlockEnter(source, caret);
+    const clean = newSource.replace(/\n+$/, "");
+    const normalized = clean + "\n\n";
+    const newContent =
+      content.slice(0, block.start) + normalized + content.slice(block.end);
+    setSaveState("dirty");
+    if (newContent === content) {
+      setFocusedKey(block.key);
+      setCaretReq({ at: newCaret, n: (caretReqRef.current?.n ?? 0) + 1 });
+      return;
+    }
+    setContent(newContent);
+    const trailing = newCaret > clean.length;
+    pendingRangeRef.current = {
+      start: block.start,
+      textLen: newCaret >= clean.length ? clean.length : newCaret + 1,
+      caret: block.start + newCaret,
+      trailing,
+    };
+  }
+
   function focusBlock(block: FlatMdBlock, caret: number) {
     pendingRangeRef.current = null;
     setFocusedKey(block.key);
@@ -527,6 +550,7 @@ export default function Notebook({
                     }
                     onFocus={(caret) => focusBlock(item.block, caret)}
                     onEdit={(src, caret) => editMdBlock(item.block, src, caret)}
+                    onEnter={(caret, source) => handleMdEnter(item.block, caret, source)}
                     onBlur={blurBlock}
                     onNavigate={(name) => void navigate(name)}
                   />

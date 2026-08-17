@@ -14,6 +14,7 @@ interface Props {
   caretReq?: CaretRequest | null;
   onFocus: (caret: number) => void;
   onEdit: (newSource: string, caret?: number) => void;
+  onEnter: (caret: number, source: string) => void;
   onBlur: () => void;
   onNavigate: (docName: string) => void;
   placeholder?: string;
@@ -25,12 +26,14 @@ export default function MarkdownBlock({
   caretReq,
   onFocus,
   onEdit,
+  onEnter,
   onBlur,
   onNavigate,
   placeholder,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const applied = useRef(-1);
+  const enterHandledRef = useRef(false);
 
   const contentPart = source.replace(/\n+$/, "");
 
@@ -49,14 +52,8 @@ export default function MarkdownBlock({
     if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
     e.preventDefault();
     const ta = e.currentTarget;
-    const { selectionStart: s, selectionEnd: end } = ta;
-    const before = ta.value.slice(0, s);
-    const after = ta.value.slice(end);
-    const trimmedBefore = before.replace(/\n+$/, "");
-    const trimmedAfter = after.replace(/^\n+/, "");
-    const newValue = trimmedBefore + "\n\n" + trimmedAfter;
-    const caret = trimmedBefore.length + 2;
-    onEdit(newValue, caret);
+    enterHandledRef.current = true;
+    onEnter(ta.selectionStart, ta.value);
   }
 
   if (focused) {
@@ -66,7 +63,13 @@ export default function MarkdownBlock({
       <textarea
         ref={taRef}
         value={displayValue}
-        onChange={(e) => onEdit(e.target.value, e.target.selectionStart)}
+        onChange={(e) => {
+          if (enterHandledRef.current) {
+            enterHandledRef.current = false;
+            return;
+          }
+          onEdit(e.target.value, e.target.selectionStart);
+        }}
         onKeyDown={handleKeyDown}
         onBlur={onBlur}
         rows={Math.max(1, displayValue.split("\n").length)}

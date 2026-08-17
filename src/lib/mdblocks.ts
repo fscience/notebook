@@ -199,3 +199,205 @@ export function splitMarkdownBlocks(src: string): MarkdownBlock[] {
 
   return blocks;
 }
+
+export interface BlockSplit {
+  newSource: string;
+  newCaret: number;
+}
+
+const ORDERED_ITEM_RE = /^( {0,3})(\d{1,9})([.)])([ \t]+)/;
+const BULLET_ITEM_RE = /^( {0,3})([-+*])([ \t]+)/;
+
+export function splitBlockEnter(source: string, caret: number): BlockSplit {
+  const contentPart = source.replace(/\n+$/, "");
+  const p = Math.min(Math.max(0, caret), contentPart.length);
+  const before = source.slice(0, p);
+  const after = source.slice(p).replace(/\n+$/, "");
+  const lineStart = contentPart.lastIndexOf("\n", p - 1) + 1;
+  const lineEndIdx = contentPart.indexOf("\n", p);
+  const lineEnd = lineEndIdx === -1 ? contentPart.length : lineEndIdx;
+  const linePrefix = contentPart.slice(lineStart, p);
+  const curLine = contentPart.slice(lineStart, lineEnd);
+  const afterLines = lineEndIdx === -1 ? "" : contentPart.slice(lineEndIdx + 1);
+  const atLineStart = p === lineStart;
+
+  const first = contentPart.split("\n").find((l) => !BLANK_RE.test(l)) ?? "";
+  if (QUOTE_RE.test(first)) {
+    return splitQuoteEnter(
+      before,
+      after,
+      contentPart,
+      lineStart,
+      lineEnd,
+      curLine,
+      atLineStart
+    );
+  }
+  if (ORDERED_ITEM_RE.test(first)) {
+    return splitOrderedEnter(
+      contentPart,
+      p,
+      lineStart,
+      lineEnd,
+      curLine,
+      afterLines
+    );
+  }
+  if (BULLET_ITEM_RE.test(first)) {
+    return splitBulletEnter(
+      before,
+      after,
+      contentPart,
+      lineStart,
+      lineEnd,
+      linePrefix,
+      curLine,
+      atLineStart
+    );
+  }
+  return { newSource: before + "\n\n" + after, newCaret: before.length + 2 };
+}
+
+function splitQuoteEnter(
+  before: string,
+  after: string,
+  contentPart: string,
+  lineStart: number,
+  lineEnd: number,
+  curLine: string,
+  atLineStart: boolean
+): BlockSplit {
+  if (/^ {0,3}>[ \t]*$/.test(curLine)) {
+    const prefixPart = contentPart.slice(0, lineStart);
+    const suffixPart = contentPart.slice(lineEnd).replace(/^\n+/, "");
+    return {
+      newSource: prefixPart + "\n\n" + suffixPart,
+      newCaret: prefixPart.length + 2,
+    };
+  }
+  if (atLineStart) {
+    if (QUOTE_RE.test(curLine)) {
+      return { newSource: before + "> \n" + after, newCaret: before.length + 2 };
+    }
+    return { newSource: before + "\n\n" + after, newCaret: before.length + 2 };
+  }
+  return { newSource: before + "\n> " + after, newCaret: before.length + 3 };
+}
+
+function splitBulletEnter(
+  before: string,
+  after: string,
+  contentPart: string,
+  lineStart: number,
+  lineEnd: number,
+  linePrefix: string,
+  curLine: string,
+  atLineStart: boolean
+): BlockSplit {
+  const mm = BULLET_ITEM_RE.exec(curLine);
+  if (mm && /^ {0,3}[-+*][ \t]*$/.test(curLine)) {
+    const prefixPart = contentPart.slice(0, lineStart);
+    const suffixPart = contentPart.slice(lineEnd).replace(/^\n+/, "");
+    return {
+      newSource: prefixPart + "\n\n" + suffixPart,
+      newCaret: prefixPart.length + 2,
+    };
+  }
+  if (atLineStart) {
+    if (mm) {
+      const marker = mm[1] + mm[2] + " ";
+      return {
+        newSource: before + marker + "\n" + after,
+        newCaret: before.length + marker.length,
+      };
+    }
+    return { newSource: before + "\n\n" + after, newCaret: before.length + 2 };
+  }
+  const m = BULLET_ITEM_RE.exec(linePrefix);
+  if (!m) {
+    return { newSource: before + "\n\n" + after, newCaret: before.length + 2 };
+  }
+  return {
+    newSource: before + "\n" + m[1] + m[2] + " " + after,
+    newCaret: before.length + 1 + m[1].length + m[2].length + 1,
+  };
+}
+
+function splitOrderedEnter(
+  contentPart: string,
+  p: number,
+  lineStart: number,
+  lineEnd: number,
+  curLine: string,
+  afterLines: string
+): BlockSplit {
+  const m = ORDERED_ITEM_RE.exec(curLine);
+  if (!m) {
+    const before = contentPart.slice(0, p);
+    const after = contentPart.slice(p);
+    return { newSource: before + "\n\n" + after, newCaret: before.length + 2 };
+  }
+  const indent = m[1];
+  const num = parseInt(m[2], 10);
+  const marker = m[3];
+  const emptyItem = curLine.slice(m[0].length).trim() === "";
+  if (emptyItem) {
+    const prefixPart = contentPart.slice(0, lineStart);
+    const suffixPart = contentPart.slice(lineEnd).replace(/^\n+/, "");
+    return {
+      newSource: prefixPart + "\n\n" + suffixPart,
+      newCaret: prefixPart.length + 2,
+    };
+  }
+  if (p === lineStart) {
+    const newItem = indent + (num + 1) + marker + " ";
+    const raw =
+      contentPart.slice(0, p) + newItem + "\n" + contentPart.slice(lineStart);
+    return renumberOrdered(raw, p + newItem.length);
+  }
+  const prefix = contentPart.slice(0, p);
+  const lineRest = curLine.slice(p - lineStart);
+  const newItem = indent + (num + 1) + marker + " " + lineRest;
+  const raw =
+    prefix + "\n" + newItem + (afterLines ? "\n" + afterLines : "");
+  const caret = prefix.length + 1 + newItem.length - lineRest.length;
+  return renumberOrdered(raw, caret);
+}
+
+function renumberOrdered(raw: string, caret: number): BlockSplit {
+  const lines = raw.split("\n");
+  const offsets = new Map<string, number>();
+  const counts = new Map<string, number>();
+  const out: string[] = [];
+  let cur = caret;
+  let cumShift = 0;
+  let lineStart = 0;
+  for (const line of lines) {
+    const m = ORDERED_ITEM_RE.exec(line);
+    if (m) {
+      const key = m[1] + m[3];
+      let off = offsets.get(key);
+      if (off === undefined) {
+        off = parseInt(m[2], 10) - 1;
+        offsets.set(key, off);
+        counts.set(key, 0);
+      }
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      const newNum = String(off + counts.get(key)!);
+      const numStart = m[1].length;
+      const newLine =
+        m[1] + newNum + m[3] + line.slice(numStart + m[2].length + m[3].length);
+      const lenDiff = newNum.length - m[2].length;
+      const absNumStart = lineStart + cumShift + numStart;
+      const absNumEnd = absNumStart + newNum.length;
+      if (absNumEnd <= cur) cur += lenDiff;
+      else if (absNumStart < cur) cur = absNumStart + newNum.length;
+      cumShift += lenDiff;
+      out.push(newLine);
+    } else {
+      out.push(line);
+    }
+    lineStart += line.length + 1;
+  }
+  return { newSource: out.join("\n"), newCaret: cur };
+}
