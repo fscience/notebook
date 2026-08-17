@@ -536,17 +536,14 @@ body {
 
 .hl-h1 {
   color: var(--accent);
-  font-size: 1.4em;
 }
 
 .hl-h2 {
   color: var(--accent);
-  font-size: 1.2em;
 }
 
 .hl-h3 {
   color: var(--accent);
-  font-size: 1.1em;
 }
 
 .hl-h4,
@@ -577,24 +574,15 @@ body {
 }
 
 .hl-inline-code {
-  font-family: var(--font-mono);
-  font-size: 0.9em;
   color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-  border-radius: 3px;
-  padding: 0 3px;
 }
 
 .hl-fence {
-  font-family: var(--font-mono);
-  font-size: 0.85em;
   color: var(--muted);
 }
 
 .hl-blockquote {
   color: var(--muted);
-  border-left: 3px solid color-mix(in srgb, var(--accent) 50%, transparent);
-  padding-left: 8px;
 }
 
 .hl-link {
@@ -608,8 +596,6 @@ body {
 
 .hl-hr {
   color: var(--muted);
-  border-top: 1px solid var(--panel-border);
-  margin: 4px 0;
 }
 
 /* Drag handle */
