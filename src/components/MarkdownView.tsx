@@ -69,8 +69,13 @@ export default function MarkdownView({ content, onNavigate }: Props) {
                 </a>
               );
             }
+            const isExternal = typeof href === "string" && /^https?:\/\//.test(href);
             return (
-              <a href={href} {...props}>
+              <a
+                href={href}
+                {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                {...props}
+              >
                 {children}
               </a>
             );

@@ -759,7 +759,16 @@ export default function MarkdownBlock({
                       </a>
                     );
                   }
-                  return <a href={href} {...props}>{children}</a>;
+                  const isExternal = typeof href === "string" && /^https?:\/\//.test(href);
+                  return (
+                    <a
+                      href={href}
+                      {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                      {...props}
+                    >
+                      {children}
+                    </a>
+                  );
                 },
               }}
             >
