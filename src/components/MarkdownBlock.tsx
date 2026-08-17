@@ -316,8 +316,8 @@ export default function MarkdownBlock({
   const applied = useRef(-1);
   const enterHandledRef = useRef(false);
   const composingRef = useRef(false);
-  const compositionFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevSlashRef = useRef(false);
+  const [composingText, setComposingText] = useState<string | null>(null);
 
   const contentPart = source.replace(/\n+$/, "");
   const displayValue = useMemo(() => {
@@ -326,7 +326,8 @@ export default function MarkdownBlock({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- caretReq intentionally excluded: including it would reset textarea cursor on every keystroke
   }, [source, contentPart]);
 
-  const highlightedHtml = useMemo(() => highlightMarkdown(displayValue), [displayValue]);
+  const effectiveValue = composingText ?? displayValue;
+  const highlightedHtml = useMemo(() => highlightMarkdown(effectiveValue), [effectiveValue]);
 
   useEffect(() => {
     if (!focused || !taRef.current || !caretReq) return;
@@ -338,6 +339,12 @@ export default function MarkdownBlock({
     ta.setSelectionRange(at, at);
     applied.current = caretReq.n;
   }, [focused, caretReq, displayValue]);
+
+  useEffect(() => {
+    if (!composingRef.current) {
+      setComposingText(null);
+    }
+  }, [source]);
 
   const syncScroll = useCallback(() => {
     if (preRef.current && taRef.current) {
@@ -567,11 +574,7 @@ export default function MarkdownBlock({
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     if (composingRef.current) {
-      if (compositionFallbackRef.current != null) {
-        clearTimeout(compositionFallbackRef.current);
-        compositionFallbackRef.current = null;
-      }
-      onEdit(e.target.value, e.target.selectionStart);
+      setComposingText(e.target.value);
       return;
     }
     if (enterHandledRef.current) {
@@ -619,22 +622,18 @@ export default function MarkdownBlock({
           />
           <textarea
             ref={taRef}
-            value={displayValue}
+            value={effectiveValue}
             onChange={handleChange}
             onCompositionStart={() => {
               composingRef.current = true;
-              if (compositionFallbackRef.current != null) {
-                clearTimeout(compositionFallbackRef.current);
-                compositionFallbackRef.current = null;
-              }
+              setComposingText(displayValue);
             }}
             onCompositionEnd={() => {
               composingRef.current = false;
-              compositionFallbackRef.current = setTimeout(() => {
-                if (taRef.current) {
-                  onEdit(taRef.current.value, taRef.current.selectionStart);
-                }
-              }, 0);
+              const finalValue = taRef.current?.value ?? effectiveValue;
+              const finalCaret = taRef.current?.selectionStart ?? 0;
+              setComposingText(null);
+              onEdit(finalValue, finalCaret);
             }}
             onKeyDown={handleKeyDown}
             onInput={syncScroll}
