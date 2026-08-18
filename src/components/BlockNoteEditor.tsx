@@ -80,6 +80,8 @@ export default function BlockNoteEditor({
     []
   );
 
+  const isInitializingRef = useRef(true);
+
   const outputsRef = useRef(outputs);
   const runningKeyRef = useRef(runningKey);
 
@@ -122,13 +124,14 @@ export default function BlockNoteEditor({
     return () => setRunBlockContext(null);
   });
 
-  const initRef = useRef(false);
+  const lastContentRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
+    if (content === lastContentRef.current) return;
+    lastContentRef.current = content;
 
     (async () => {
+      isInitializingRef.current = true;
       const segments = parseContent(content);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const allBlocks: any[] = [];
@@ -153,6 +156,7 @@ export default function BlockNoteEditor({
       }
 
       editor.replaceBlocks(editor.document, allBlocks);
+      isInitializingRef.current = false;
       setParsed(true);
     })();
   }, [editor, content]);
@@ -160,6 +164,7 @@ export default function BlockNoteEditor({
   useEffect(() => {
     if (!parsed) return;
     const handler = async () => {
+      if (isInitializingRef.current) return;
       const md = await editor.blocksToMarkdownLossy(editor.document);
       onChangeRef.current(md);
     };
