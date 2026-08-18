@@ -1,24 +1,125 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback, useImperativeHandle } from "react";
+import type { Ref } from "react";
 import { useCreateBlockNote } from "@blocknote/react";
+import {
+  SuggestionMenuController,
+  getDefaultReactSlashMenuItems,
+  type DefaultReactSuggestionItem,
+} from "@blocknote/react";
+import {
+  filterSuggestionItems,
+  insertOrUpdateBlock,
+} from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/shadcn";
 import "@blocknote/shadcn/style.css";
+import {
+  notebookSchema,
+  setRunBlockContext,
+  type RunBlockContextValue,
+} from "@/lib/runBlockSchema";
+import { parseContent } from "@/lib/runblock";
+import type { CellOutput } from "@/lib/types";
+import { Play, TerminalIcon } from "@/components/icons";
 
-interface Props {
-  markdown: string;
-  onChange: (markdown: string) => void;
+export interface BlockNoteEditorHandle {
+  insertRunBlock: (kind: "python" | "shell") => void;
+  getPythonBlocks: () => { id: string; code: string }[];
+  getBlockCode: (blockId: string) => string;
 }
 
-export default function BlockNoteEditor({ markdown, onChange }: Props) {
+interface Props {
+  content: string;
+  onChange: (content: string) => void;
+  outputs: Record<string, CellOutput>;
+  runningKey: string | null;
+  onRunBlock: (blockId: string, kind: "python" | "shell") => void;
+  onDeleteBlock: (blockId: string) => void;
+  onToggleOutput: (blockId: string, collapsed: boolean) => void;
+  ref?: Ref<BlockNoteEditorHandle>;
+}
+
+export default function BlockNoteEditor({
+  content,
+  onChange,
+  outputs,
+  runningKey,
+  onRunBlock,
+  onDeleteBlock,
+  onToggleOutput,
+  ref,
+}: Props) {
   const [parsed, setParsed] = useState(false);
   const onChangeRef = useRef(onChange);
+  const onRunBlockRef = useRef(onRunBlock);
+  const onDeleteBlockRef = useRef(onDeleteBlock);
+  const onToggleOutputRef = useRef(onToggleOutput);
+
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
 
-  const editor = useCreateBlockNote({
-    initialContent: [],
+  useEffect(() => {
+    onRunBlockRef.current = onRunBlock;
+  }, [onRunBlock]);
+
+  useEffect(() => {
+    onDeleteBlockRef.current = onDeleteBlock;
+  }, [onDeleteBlock]);
+
+  useEffect(() => {
+    onToggleOutputRef.current = onToggleOutput;
+  }, [onToggleOutput]);
+
+  const editor = useCreateBlockNote(
+    {
+      schema: notebookSchema,
+      initialContent: [{ type: "paragraph" as const }],
+    },
+    []
+  );
+
+  const outputsRef = useRef(outputs);
+  const runningKeyRef = useRef(runningKey);
+
+  useEffect(() => {
+    outputsRef.current = outputs;
+  }, [outputs]);
+
+  useEffect(() => {
+    runningKeyRef.current = runningKey;
+  }, [runningKey]);
+
+  const ctxRef = useRef<RunBlockContextValue>({
+    getOutput: (blockId) => outputsRef.current[blockId],
+    isRunning: (blockId) => runningKeyRef.current === blockId,
+    onRun: (blockId) => {
+      const block = editor.document.find((b) => b.id === blockId);
+      if (!block) return;
+      const kind = block.type === "pythonRun" ? "python" : "shell";
+      onRunBlockRef.current(blockId, kind as "python" | "shell");
+    },
+    onEdit: (blockId, code) => {
+      const block = editor.document.find((b) => b.id === blockId);
+      if (!block) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.updateBlock(block, { props: { code } as any });
+    },
+    onDelete: (blockId) => {
+      const block = editor.document.find((b) => b.id === blockId);
+      if (!block) return;
+      editor.removeBlocks([block]);
+      onDeleteBlockRef.current(blockId);
+    },
+    onToggleOutput: (blockId, collapsed) => {
+      onToggleOutputRef.current(blockId, collapsed);
+    },
+  });
+
+  useEffect(() => {
+    setRunBlockContext(ctxRef.current);
+    return () => setRunBlockContext(null);
   });
 
   const initRef = useRef(false);
@@ -26,17 +127,35 @@ export default function BlockNoteEditor({ markdown, onChange }: Props) {
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
-    editor.tryParseMarkdownToBlocks(markdown || " ").then((blocks) => {
-      if (blocks.length > 0) {
-        editor.replaceBlocks(editor.document, blocks);
-      } else {
-        editor.insertBlocks([
-          { type: "paragraph", content: "" },
-        ], editor.document[0]?.id, "before");
+
+    (async () => {
+      const segments = parseContent(content);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const allBlocks: any[] = [];
+
+      for (const seg of segments) {
+        if (seg.kind === "markdown") {
+          if (seg.content.trim()) {
+            const blocks = await editor.tryParseMarkdownToBlocks(seg.content);
+            allBlocks.push(...blocks);
+          }
+        } else {
+          const type = seg.kind === "python" ? "pythonRun" : "shellRun";
+          allBlocks.push({
+            type,
+            props: { code: seg.content },
+          });
+        }
       }
+
+      if (allBlocks.length === 0) {
+        allBlocks.push({ type: "paragraph" });
+      }
+
+      editor.replaceBlocks(editor.document, allBlocks);
       setParsed(true);
-    });
-  }, [editor, markdown]);
+    })();
+  }, [editor, content]);
 
   useEffect(() => {
     if (!parsed) return;
@@ -50,6 +169,90 @@ export default function BlockNoteEditor({ markdown, onChange }: Props) {
     };
   }, [editor, parsed]);
 
+  const getSlashMenuItems = useCallback(
+    async (query: string): Promise<DefaultReactSuggestionItem[]> => {
+      const defaults = getDefaultReactSlashMenuItems(editor);
+      const custom: DefaultReactSuggestionItem[] = [
+        {
+          title: "Python 代码块",
+          subtext: "插入可运行的 Python 代码块",
+          icon: <Play className="h-4 w-4" />,
+          group: "运行块",
+          aliases: ["python", "py", "python-run"],
+          onItemClick: () => {
+            insertOrUpdateBlock(editor, {
+              type: "pythonRun",
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              props: { code: "" } as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any);
+          },
+        },
+        {
+          title: "Shell 命令块",
+          subtext: "插入可运行的 Shell 命令块",
+          icon: <TerminalIcon className="h-4 w-4" />,
+          group: "运行块",
+          aliases: ["shell", "bash", "sh", "shell-run"],
+          onItemClick: () => {
+            insertOrUpdateBlock(editor, {
+              type: "shellRun",
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              props: { code: "" } as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any);
+          },
+        },
+      ];
+      return filterSuggestionItems(
+        [...defaults, ...custom],
+        query
+      );
+    },
+    [editor]
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      insertRunBlock: (kind) => {
+        const type = kind === "python" ? "pythonRun" : "shellRun";
+        const blocks = editor.document;
+        const lastBlock = blocks[blocks.length - 1];
+        if (lastBlock) {
+          editor.insertBlocks(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            [{ type: type as any, props: { code: "" } as any }],
+            lastBlock,
+            "after"
+          );
+        } else {
+          editor.insertBlocks([
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            { type: type as any, props: { code: "" } as any },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ] as any, undefined as any);
+        }
+      },
+      getPythonBlocks: () => {
+        return editor.document
+          .filter((b) => b.type === "pythonRun")
+          .map((b) => ({
+            id: b.id,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            code: (b.props as any).code ?? "",
+          }));
+      },
+      getBlockCode: (blockId) => {
+        const block = editor.document.find((b) => b.id === blockId);
+        if (!block) return "";
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (block.props as any).code ?? "";
+      },
+    }),
+    [editor]
+  );
+
   if (!parsed) {
     return <div className="min-h-[2em]" />;
   }
@@ -59,11 +262,16 @@ export default function BlockNoteEditor({ markdown, onChange }: Props) {
       editor={editor}
       theme={undefined}
       formattingToolbar={true}
-      slashMenu={true}
+      slashMenu={false}
       sideMenu={true}
       linkToolbar={true}
       tableHandles={false}
       emojiPicker={false}
-    />
+    >
+      <SuggestionMenuController
+        triggerCharacter="/"
+        getItems={getSlashMenuItems as (query: string) => Promise<DefaultReactSuggestionItem[]>}
+      />
+    </BlockNoteView>
   );
 }

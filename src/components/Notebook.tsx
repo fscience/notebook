@@ -1,18 +1,13 @@
 "use client";
 
-import { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { Ref } from "react";
 import type { CellOutput, Document } from "@/lib/types";
-import BlockNoteEditor from "@/components/BlockNoteEditor";
-import RunBlock from "@/components/RunBlock";
+import BlockNoteEditor, {
+  type BlockNoteEditorHandle,
+} from "@/components/BlockNoteEditor";
 import { ChevronLeft } from "@/components/icons";
 import { ROOT_DOC_NAME } from "@/lib/wiki";
-import {
-  parseContent,
-  serializeBlock,
-  type RunBlockKind,
-  type RunSegment,
-} from "@/lib/runblock";
 
 export type SaveState = "saved" | "saving" | "dirty";
 
@@ -23,7 +18,7 @@ export interface NotebookHeaderState {
 }
 
 export interface NotebookHandle {
-  appendBlock: (kind: RunBlockKind) => void;
+  appendBlock: (kind: "python" | "shell") => void;
 }
 
 interface Props {
@@ -53,7 +48,6 @@ export default function Notebook({
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentRef = useRef<string>("");
@@ -62,6 +56,7 @@ export default function Notebook({
   const currentDocRef = useRef<string>(ROOT_DOC_NAME);
   const undoStackRef = useRef<UndoEntry[]>([]);
   const redoStackRef = useRef<UndoEntry[]>([]);
+  const editorHandleRef = useRef<BlockNoteEditorHandle | null>(null);
 
   useEffect(() => {
     contentRef.current = content;
@@ -78,8 +73,6 @@ export default function Notebook({
   useEffect(() => {
     currentDocRef.current = currentDoc;
   }, [currentDoc]);
-
-  const segments = useMemo(() => parseContent(content), [content]);
 
   function pushUndo() {
     undoStackRef.current.push({
@@ -130,27 +123,17 @@ export default function Notebook({
       } else if (mod && e.key === "y") {
         e.preventDefault();
         redo();
-      } else if (e.key === "Escape") {
-        setSelectedKey(null);
       }
     }
     document.addEventListener("keydown", handleGlobalKeyDown);
     return () => document.removeEventListener("keydown", handleGlobalKeyDown);
   }, []);
 
-  function appendBlock(kind: RunBlockKind) {
-    pushUndo();
-    const block = serializeBlock(kind, "");
-    setContent((prev) => {
-      if (!prev.trim()) return block;
-      return prev.replace(/\n+$/, "") + "\n\n" + block;
-    });
-    setSaveState("dirty");
-  }
-
-  const appendBlockRef = useRef<(kind: RunBlockKind) => void>(() => {});
+  const appendBlockRef = useRef<(kind: "python" | "shell") => void>(() => {});
   useEffect(() => {
-    appendBlockRef.current = appendBlock;
+    appendBlockRef.current = (kind) => {
+      editorHandleRef.current?.insertRunBlock(kind);
+    };
   });
 
   useImperativeHandle(
@@ -221,41 +204,38 @@ export default function Notebook({
     }
   }
 
-  const save = useMemo(
-    () => () => {
-      const savedName = currentDocRef.current;
-      setSaveState("saving");
-      fetch(`/api/projects/${projectId}/content`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: savedName,
-          content: contentRef.current,
-          outputs: outputsRef.current,
-        }),
+  const saveFn = useCallback(() => {
+    const savedName = currentDocRef.current;
+    setSaveState("saving");
+    fetch(`/api/projects/${projectId}/content`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: savedName,
+        content: contentRef.current,
+        outputs: outputsRef.current,
+      }),
+    })
+      .then(async (r) => {
+        if (!r.ok) {
+          setSaveState("dirty");
+          return;
+        }
+        setSaveState("saved");
+        const data = await r.json().catch(() => ({}));
+        applySaveResponse(data.documents, savedName);
       })
-        .then(async (r) => {
-          if (!r.ok) {
-            setSaveState("dirty");
-            return;
-          }
-          setSaveState("saved");
-          const data = await r.json().catch(() => ({}));
-          applySaveResponse(data.documents, savedName);
-        })
-        .catch(() => setSaveState("dirty"));
-    },
-    [projectId]
-  );
+      .catch(() => setSaveState("dirty"));
+  }, [projectId]);
 
   useEffect(() => {
     if (loading) return;
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(save, 900);
+    timerRef.current = setTimeout(() => saveFn(), 900);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [content, outputs, currentDoc, loading, save]);
+  }, [content, outputs, currentDoc, loading, saveFn]);
 
   useEffect(() => {
     return () => {
@@ -279,7 +259,7 @@ export default function Notebook({
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    await save();
+    saveFn();
   }
 
   async function navigate(docName: string) {
@@ -295,125 +275,98 @@ export default function Notebook({
     setOutputs(nextOutputs);
     currentDocRef.current = name;
     setCurrentDoc(name);
-    setSelectedKey(null);
     setSaveState("dirty");
   }
 
-  function setDocOutput(key: string, output: CellOutput | undefined) {
-    setOutputs((prev) => {
-      const next = { ...prev };
-      if (output) next[key] = output;
-      else delete next[key];
-      return next;
-    });
-  }
-
-  function editBlock(seg: RunSegment, code: string) {
+  function handleContentChange(newContent: string) {
+    if (contentRef.current === newContent) return;
     pushUndo();
-    const serialized = serializeBlock(seg.kind, code);
-    setContent((prev) =>
-      prev.slice(0, seg.start) + serialized + prev.slice(seg.end)
-    );
+    setContent(newContent);
     setSaveState("dirty");
-    setOutputs((prev) => {
-      if (!(seg.key in prev)) return prev;
-      const next = { ...prev };
-      delete next[seg.key];
-      return next;
-    });
   }
 
-  function deleteBlock(seg: RunSegment) {
-    pushUndo();
-    setContent((prev) => prev.slice(0, seg.start) + prev.slice(seg.end));
-    setSaveState("dirty");
-    setOutputs((prev) => {
-      if (!(seg.key in prev)) return prev;
-      const next = { ...prev };
-      delete next[seg.key];
-      return next;
-    });
-  }
-
-  async function runBlock(seg: RunSegment) {
+  function handleRunBlock(blockId: string, kind: "python" | "shell") {
     if (runningKey != null) return;
-    setRunningKey(seg.key);
-    setDocOutput(seg.key, undefined);
-    try {
-      let res: Response;
-      if (seg.kind === "shell") {
-        res = await fetch(`/api/projects/${projectId}/execute-shell`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ commands: seg.content }),
-        });
-      } else {
-        const pythons = segments.filter(
-          (s): s is RunSegment => s.kind === "python"
-        );
-        const idx = pythons.findIndex((s) => s.key === seg.key);
-        const codeCells = pythons.slice(0, idx + 1).map((s) => s.content);
-        res = await fetch(`/api/projects/${projectId}/execute`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ codeCells }),
-        });
-      }
-      const data: CellOutput & { error?: string } = await res.json();
-      if (!res.ok) {
-        setDocOutput(seg.key, {
-          stdout: "",
-          stderr: "",
-          error: data.error || "执行失败",
-        });
-      } else {
-        setDocOutput(seg.key, {
-          stdout: data.stdout,
-          stderr: data.stderr,
-          error: data.error,
-          timedOut: data.timedOut,
-          ...(seg.kind === "python" ? { images: data.images } : {}),
-        });
-      }
-    } catch {
-      setDocOutput(seg.key, {
-        stdout: "",
-        stderr: "",
-        error: "请求失败",
-      });
-    } finally {
-      setRunningKey(null);
-    }
-  }
-
-  function toggleOutput(seg: RunSegment, collapsed: boolean) {
-    const output = outputs[seg.key];
-    if (!output) return;
-    setDocOutput(seg.key, { ...output, collapsed });
-  }
-
-  function handleSegmentChange(segIndex: number, newMarkdown: string) {
-    const seg = segments[segIndex];
-    if (!seg || seg.kind !== "markdown") return;
-    
-    pushUndo();
-    setContent((prev) => {
-      const head = prev.slice(0, seg.start);
-      const tail = prev.slice(seg.end);
-      const newContent = head + newMarkdown + tail;
-      return newContent;
+    setRunningKey(blockId);
+    setOutputs((prev) => {
+      const next = { ...prev };
+      delete next[blockId];
+      return next;
     });
-    setSaveState("dirty");
+
+    (async () => {
+      try {
+        let res: Response;
+        if (kind === "shell") {
+          const code = editorHandleRef.current?.getBlockCode(blockId) ?? "";
+          res = await fetch(`/api/projects/${projectId}/execute-shell`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ commands: code }),
+          });
+        } else {
+          const pythons = editorHandleRef.current?.getPythonBlocks() ?? [];
+          const idx = pythons.findIndex((b) => b.id === blockId);
+          const codeCells = pythons.slice(0, idx + 1).map((b) => b.code);
+          res = await fetch(`/api/projects/${projectId}/execute`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ codeCells }),
+          });
+        }
+        const data: CellOutput & { error?: string } = await res.json();
+        if (!res.ok) {
+          setOutputs((prev) => ({
+            ...prev,
+            [blockId]: {
+              stdout: "",
+              stderr: "",
+              error: data.error || "执行失败",
+            },
+          }));
+        } else {
+          setOutputs((prev) => ({
+            ...prev,
+            [blockId]: {
+              stdout: data.stdout,
+              stderr: data.stderr,
+              error: data.error,
+              timedOut: data.timedOut,
+              ...(kind === "python" ? { images: data.images } : {}),
+            },
+          }));
+        }
+      } catch {
+        setOutputs((prev) => ({
+          ...prev,
+          [blockId]: {
+            stdout: "",
+            stderr: "",
+            error: "请求失败",
+          },
+        }));
+      } finally {
+        setRunningKey(null);
+      }
+    })();
   }
 
-  function handleContextMenu(e: React.MouseEvent, key: string) {
-    e.preventDefault();
-    setSelectedKey(key);
+  function handleDeleteBlock(blockId: string) {
+    pushUndo();
+    setOutputs((prev) => {
+      if (!(blockId in prev)) return prev;
+      const next = { ...prev };
+      delete next[blockId];
+      return next;
+    });
   }
 
-  function handleEmptyEdit(v: string) {
-    setContent(v);
-    setSaveState("dirty");
+  function handleToggleOutput(blockId: string, collapsed: boolean) {
+    setOutputs((prev) => {
+      const output = prev[blockId];
+      if (!output) return prev;
+      return { ...prev, [blockId]: { ...output, collapsed } };
+    });
   }
 
   return (
@@ -423,60 +376,20 @@ export default function Notebook({
           <p className="text-sm text-danger">{loadError}</p>
         ) : loading ? (
           <p className="text-sm text-muted">加载中...</p>
-        ) : content.trim() === "" ? (
-          <textarea
-            autoFocus
-            value={content}
-            onChange={(e) => handleEmptyEdit(e.target.value)}
-            rows={6}
-            spellCheck={false}
-            className="mx-auto block w-full max-w-3xl resize-y rounded-lg border border-dashed border-panel-border bg-transparent px-3 py-3 font-mono text-[13px] leading-relaxed text-muted outline-none focus:border-accent"
-            placeholder="# 在这里编写 Markdown，用 ```python-run / ```shell-run 代码块插入可运行模块..."
-          />
         ) : (
-          <div className="relative mx-auto flex min-h-full max-w-3xl flex-col py-1">
-            <div className="space-y-2">
-              {segments.map((seg, segIndex) => {
-                if (seg.kind === "markdown") {
-                  const key = `md:${segIndex}:${seg.start}`;
-                  return (
-                    <div key={key} data-block-key={key}>
-                      <BlockNoteEditor
-                        markdown={seg.content}
-                        onChange={(md) => handleSegmentChange(segIndex, md)}
-                      />
-                    </div>
-                  );
-                } else {
-                  return (
-                    <div
-                      key={`${seg.kind}-${seg.start}`}
-                      data-block-key={seg.key}
-                      data-run-block
-                      className={selectedKey === seg.key ? "selected" : ""}
-                      onClick={() => setSelectedKey(seg.key)}
-                      onContextMenu={(e) => handleContextMenu(e, seg.key)}
-                    >
-                      <RunBlock
-                        kind={seg.kind}
-                        code={seg.content}
-                        output={outputs[seg.key]}
-                        running={runningKey === seg.key}
-                        selected={selectedKey === seg.key}
-                        onEdit={(code) => editBlock(seg, code)}
-                        onRun={() => void runBlock(seg)}
-                        onDelete={() => deleteBlock(seg)}
-                        onToggleOutput={(collapsed) =>
-                          toggleOutput(seg, collapsed)
-                        }
-                        onSelect={() => setSelectedKey(seg.key)}
-                        onContextMenu={(e) => handleContextMenu(e, seg.key)}
-                      />
-                    </div>
-                  );
-                }
-              })}
-            </div>
+          <div className="mx-auto max-w-3xl">
+            <BlockNoteEditor
+              ref={(handle) => {
+                editorHandleRef.current = handle;
+              }}
+              content={content}
+              onChange={handleContentChange}
+              outputs={outputs}
+              runningKey={runningKey}
+              onRunBlock={handleRunBlock}
+              onDeleteBlock={handleDeleteBlock}
+              onToggleOutput={handleToggleOutput}
+            />
           </div>
         )}
       </div>
