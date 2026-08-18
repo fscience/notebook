@@ -5,7 +5,6 @@ import type { CellOutput } from "@/lib/types";
 import type { RunBlockKind } from "@/lib/runblock";
 import { highlightPython, highlightShell } from "@/lib/highlight";
 import { Play, Stop, Trash, ChevronDown, ChevronUp, TerminalIcon } from "@/components/icons";
-import DragHandle from "@/components/DragHandle";
 
 interface Props {
   kind: RunBlockKind;
@@ -19,8 +18,6 @@ interface Props {
   onToggleOutput: (collapsed: boolean) => void;
   onSelect: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragEnd: (e: React.DragEvent) => void;
 }
 
 function OutputView({
@@ -109,8 +106,6 @@ export default function RunBlock({
   onToggleOutput,
   onSelect,
   onContextMenu,
-  onDragStart,
-  onDragEnd,
 }: Props) {
   const isPython = kind === "python";
 
@@ -125,7 +120,6 @@ export default function RunBlock({
       onClick={onSelect}
       onContextMenu={onContextMenu}
     >
-      <DragHandle onDragStart={onDragStart} onDragEnd={onDragEnd} visible={selected} />
       <div className="run-block-inner rounded-lg border border-cell-border bg-cell-bg">
         <div className="flex items-center gap-1 border-b border-cell-border px-2 py-1">
           <span
