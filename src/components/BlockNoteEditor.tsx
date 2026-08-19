@@ -55,6 +55,7 @@ export default function BlockNoteEditor({
   const onRunBlockRef = useRef(onRunBlock);
   const onDeleteBlockRef = useRef(onDeleteBlock);
   const onToggleOutputRef = useRef(onToggleOutput);
+  const pendingContentRef = useRef<string | null>(null);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -128,6 +129,11 @@ export default function BlockNoteEditor({
 
   useEffect(() => {
     if (content === lastContentRef.current) return;
+    if (pendingContentRef.current !== null && pendingContentRef.current === content) {
+      lastContentRef.current = content;
+      pendingContentRef.current = null;
+      return;
+    }
     lastContentRef.current = content;
 
     (async () => {
@@ -161,18 +167,12 @@ export default function BlockNoteEditor({
     })();
   }, [editor, content]);
 
-  useEffect(() => {
-    if (!parsed) return;
-    const handler = async () => {
-      if (isInitializingRef.current) return;
-      const md = await editor.blocksToMarkdownLossy(editor.document);
-      onChangeRef.current(md);
-    };
-    const unsub = editor.onChange(handler);
-    return () => {
-      unsub?.();
-    };
-  }, [editor, parsed]);
+  const handleChange = useCallback(async () => {
+    if (isInitializingRef.current) return;
+    const md = await editor.blocksToMarkdownLossy(editor.document);
+    pendingContentRef.current = md;
+    onChangeRef.current(md);
+  }, [editor]);
 
   const getSlashMenuItems = useCallback(
     async (query: string): Promise<DefaultReactSuggestionItem[]> => {
@@ -272,6 +272,7 @@ export default function BlockNoteEditor({
       linkToolbar={true}
       tableHandles={false}
       emojiPicker={false}
+      onChange={handleChange}
     >
       <SuggestionMenuController
         triggerCharacter="/"
