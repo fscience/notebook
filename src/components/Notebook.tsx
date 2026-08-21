@@ -7,7 +7,7 @@ import BlockNoteEditor, {
   type BlockNoteEditorHandle,
 } from "@/components/BlockNoteEditor";
 import { ChevronLeft } from "@/components/icons";
-import { runBlockKey } from "@/lib/runblock";
+import { runBlockKey, type RunBlockKind } from "@/lib/runblock";
 import { ROOT_DOC_NAME } from "@/lib/wiki";
 
 export type SaveState = "saved" | "saving" | "dirty";
@@ -19,7 +19,7 @@ export interface NotebookHeaderState {
 }
 
 export interface NotebookHandle {
-  appendBlock: (kind: "python" | "shell") => void;
+  appendBlock: (kind: RunBlockKind) => void;
 }
 
 interface Props {
@@ -75,72 +75,69 @@ export default function Notebook({
     currentDocRef.current = currentDoc;
   }, [currentDoc]);
 
-  function pushUndo() {
-    undoStackRef.current.push({
+  const snapshot = useCallback(
+    (): UndoEntry => ({
       content: contentRef.current,
       outputs: { ...outputsRef.current },
-    });
+    }),
+    []
+  );
+
+  const restore = useCallback((entry: UndoEntry) => {
+    contentRef.current = entry.content;
+    setContent(entry.content);
+    outputsRef.current = entry.outputs;
+    setOutputs(entry.outputs);
+    setSaveState("dirty");
+  }, []);
+
+  function pushUndo() {
+    undoStackRef.current.push(snapshot());
     if (undoStackRef.current.length > MAX_UNDO) undoStackRef.current.shift();
     redoStackRef.current = [];
   }
 
-  function undo() {
-    const entry = undoStackRef.current.pop();
-    if (!entry) return;
-    redoStackRef.current.push({
-      content: contentRef.current,
-      outputs: { ...outputsRef.current },
-    });
-    contentRef.current = entry.content;
-    setContent(entry.content);
-    outputsRef.current = entry.outputs;
-    setOutputs(entry.outputs);
-    setSaveState("dirty");
-  }
+  const travel = useCallback(
+    (from: UndoEntry[], to: UndoEntry[]) => {
+      const entry = from.pop();
+      if (!entry) return;
+      to.push(snapshot());
+      restore(entry);
+    },
+    [snapshot, restore]
+  );
 
-  function redo() {
-    const entry = redoStackRef.current.pop();
-    if (!entry) return;
-    undoStackRef.current.push({
-      content: contentRef.current,
-      outputs: { ...outputsRef.current },
-    });
-    contentRef.current = entry.content;
-    setContent(entry.content);
-    outputsRef.current = entry.outputs;
-    setOutputs(entry.outputs);
-    setSaveState("dirty");
-  }
+  const undo = useCallback(
+    () => travel(undoStackRef.current, redoStackRef.current),
+    [travel]
+  );
+  const redo = useCallback(
+    () => travel(redoStackRef.current, undoStackRef.current),
+    [travel]
+  );
 
   useEffect(() => {
     function handleGlobalKeyDown(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      } else if (mod && e.key === "z" && e.shiftKey) {
-        e.preventDefault();
-        redo();
-      } else if (mod && e.key === "y") {
-        e.preventDefault();
-        redo();
+      if (!mod || e.key.toLowerCase() !== "z") {
+        if (mod && e.key === "y") {
+          e.preventDefault();
+          redo();
+        }
+        return;
       }
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
     }
     document.addEventListener("keydown", handleGlobalKeyDown);
     return () => document.removeEventListener("keydown", handleGlobalKeyDown);
-  }, []);
-
-  const appendBlockRef = useRef<(kind: "python" | "shell") => void>(() => {});
-  useEffect(() => {
-    appendBlockRef.current = (kind) => {
-      editorHandleRef.current?.insertRunBlock(kind);
-    };
-  });
+  }, [undo, redo]);
 
   useImperativeHandle(
     ref,
     () => ({
-      appendBlock: (kind) => appendBlockRef.current(kind),
+      appendBlock: (kind) => editorHandleRef.current?.insertRunBlock(kind),
     }),
     []
   );
@@ -160,16 +157,14 @@ export default function Notebook({
           list.find((d: Document) => d.name === ROOT_DOC_NAME) ??
           list[0] ??
           null;
-        const rootContent = root ? root.content : "";
-        const rootOutputs = root?.outputs ?? {};
         docsRef.current = list;
         setDocs(list);
-        contentRef.current = rootContent;
-        setContent(rootContent);
-        outputsRef.current = rootOutputs;
-        setOutputs(rootOutputs);
         currentDocRef.current = root ? root.name : ROOT_DOC_NAME;
-        setCurrentDoc(root ? root.name : ROOT_DOC_NAME);
+        setCurrentDoc(currentDocRef.current);
+        contentRef.current = root ? root.content : "";
+        setContent(contentRef.current);
+        outputsRef.current = root?.outputs ?? {};
+        setOutputs(outputsRef.current);
       })
       .catch(() => {
         if (alive) setLoadError("加载项目失败");
@@ -205,7 +200,7 @@ export default function Notebook({
     }
   }
 
-  const saveFn = useCallback(() => {
+  const persistContent = useCallback(() => {
     const savedName = currentDocRef.current;
     setSaveState("saving");
     fetch(`/api/projects/${projectId}/content`, {
@@ -223,8 +218,7 @@ export default function Notebook({
           return;
         }
         setSaveState("saved");
-        const data = await r.json().catch(() => ({}));
-        applySaveResponse(data.documents, savedName);
+        applySaveResponse(await r.json().catch(() => ({})), savedName);
       })
       .catch(() => setSaveState("dirty"));
   }, [projectId]);
@@ -232,12 +226,13 @@ export default function Notebook({
   useEffect(() => {
     if (loading) return;
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => saveFn(), 900);
+    timerRef.current = setTimeout(persistContent, 900);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [content, outputs, currentDoc, loading, saveFn]);
+  }, [content, outputs, currentDoc, loading, persistContent]);
 
+  // Flush pending changes when switching away from the project.
   useEffect(() => {
     return () => {
       if (timerRef.current) {
@@ -255,25 +250,23 @@ export default function Notebook({
     };
   }, [projectId]);
 
-  async function flushSave() {
+  function flushSave() {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    saveFn();
+    persistContent();
   }
 
   async function navigate(docName: string) {
     const name = String(docName || "").trim() || ROOT_DOC_NAME;
     if (name === currentDocRef.current) return;
-    await flushSave();
+    flushSave();
     const existing = docsRef.current.find((d) => d.name === name);
-    const nextContent = existing ? existing.content : "";
-    const nextOutputs = existing?.outputs ?? {};
-    contentRef.current = nextContent;
-    setContent(nextContent);
-    outputsRef.current = nextOutputs;
-    setOutputs(nextOutputs);
+    contentRef.current = existing ? existing.content : "";
+    setContent(contentRef.current);
+    outputsRef.current = existing?.outputs ?? {};
+    setOutputs(outputsRef.current);
     currentDocRef.current = name;
     setCurrentDoc(name);
     setSaveState("dirty");
@@ -286,82 +279,70 @@ export default function Notebook({
     setSaveState("dirty");
   }
 
-  function handleRunBlock(key: string, kind: "python" | "shell") {
+  async function handleRunBlock(key: string, kind: RunBlockKind) {
     if (runningKey != null) return;
     setRunningKey(key);
-    setOutputs((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
+    removeOutput(key);
 
-    (async () => {
-      try {
-        let res: Response;
-        if (kind === "shell") {
-          const code = editorHandleRef.current?.getBlockCode(key) ?? "";
-          res = await fetch(`/api/projects/${projectId}/execute-shell`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ commands: code }),
-          });
-        } else {
-          const pythons = editorHandleRef.current?.getPythonBlocks() ?? [];
-          const idx = pythons.findIndex(
-            (b) => runBlockKey("python", b.code) === key
-          );
-          const codeCells = pythons.slice(0, idx + 1).map((b) => b.code);
-          res = await fetch(`/api/projects/${projectId}/execute`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ codeCells }),
-          });
-        }
-        const data: CellOutput & { error?: string } = await res.json();
-        if (!res.ok) {
-          setOutputs((prev) => ({
-            ...prev,
-            [key]: {
-              stdout: "",
-              stderr: "",
-              error: data.error || "执行失败",
-            },
-          }));
-        } else {
-          setOutputs((prev) => ({
-            ...prev,
-            [key]: {
+    let res: Response;
+    try {
+      if (kind === "shell") {
+        res = await fetch(`/api/projects/${projectId}/execute-shell`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            commands: editorHandleRef.current?.getBlockCode(key) ?? "",
+          }),
+        });
+      } else {
+        const pythons = editorHandleRef.current?.getPythonBlocks() ?? [];
+        const idx = pythons.findIndex(
+          (b) => runBlockKey("python", b.code) === key
+        );
+        res = await fetch(`/api/projects/${projectId}/execute`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            codeCells: pythons.slice(0, idx + 1).map((b) => b.code),
+          }),
+        });
+      }
+      const data: CellOutput & { error?: string } = await res.json();
+      setOutputs((prev) => ({
+        ...prev,
+        [key]: res.ok
+          ? {
               stdout: data.stdout,
               stderr: data.stderr,
               error: data.error,
               timedOut: data.timedOut,
               ...(kind === "python" ? { images: data.images } : {}),
-            },
-          }));
-        }
-      } catch {
-        setOutputs((prev) => ({
-          ...prev,
-          [key]: {
-            stdout: "",
-            stderr: "",
-            error: "请求失败",
-          },
-        }));
-      } finally {
-        setRunningKey(null);
-      }
-    })();
+            }
+          : { stdout: "", stderr: "", error: data.error || "执行失败" },
+      }));
+    } catch {
+      setOutputError(key, "请求失败");
+    } finally {
+      setRunningKey(null);
+    }
   }
 
-  function handleDeleteBlock(key: string) {
-    pushUndo();
+  function removeOutput(key: string) {
     setOutputs((prev) => {
       if (!(key in prev)) return prev;
       const next = { ...prev };
       delete next[key];
       return next;
     });
+  }
+
+  function setOutputError(key: string, error: string) {
+    setOutputs((prev) => ({ ...prev, [key]: { stdout: "", stderr: "", error } }));
+  }
+
+  function handleDeleteBlock(key: string) {
+    pushUndo();
+    removeOutput(key);
   }
 
   function handleToggleOutput(key: string, collapsed: boolean) {

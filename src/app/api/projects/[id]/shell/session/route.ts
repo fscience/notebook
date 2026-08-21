@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { handle, ok, readJson, str } from "@/lib/api";
 import { attachShell } from "@/lib/shell";
 
 export const dynamic = "force-dynamic";
@@ -7,17 +8,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
+  return handle(async () => {
     const { id } = await params;
-    const body = await request.json().catch(() => ({}));
-    const cellId = typeof body.cellId === "string" ? body.cellId : "";
-    const persistHistory = body.persistHistory !== false;
-    const session = await attachShell(id, cellId, { persistHistory });
-    return NextResponse.json({ ok: true, cwd: session.cwd, root: session.root });
-  } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 }
-    );
-  }
+    const body = await readJson(request);
+    const session = await attachShell(id, str(body, "cellId"), {
+      persistHistory: body.persistHistory !== false,
+    });
+    return ok({ ok: true, cwd: session.cwd, root: session.root });
+  });
 }

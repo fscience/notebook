@@ -4,15 +4,14 @@ import {
   defaultBlockSpecs,
   defaultProps,
 } from "@blocknote/core";
-import { highlightPython, highlightShell } from "@/lib/highlight";
-import { runBlockKey } from "@/lib/runblock";
+import { highlightCode } from "@/lib/highlight";
+import { runBlockKey, type RunBlockKind } from "@/lib/runblock";
 import type { CellOutput } from "@/lib/types";
 
 export interface RunBlockContextValue {
   getOutput: (blockId: string) => CellOutput | undefined;
   isRunning: (blockId: string) => boolean;
   onRun: (blockId: string) => void;
-  onEdit: (blockId: string, code: string) => void;
   onDelete: (blockId: string) => void;
   onToggleOutput: (blockId: string, collapsed: boolean) => void;
 }
@@ -32,21 +31,23 @@ export function getRunBlockContext(): RunBlockContextValue | null {
 // node views have no `update`), which destroys the textarea and steals focus.
 const pendingCode = new Map<string, string>();
 
-export function flushPendingCode(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  editor: any
-): void {
-  if (pendingCode.size === 0) return;
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+export function flushPendingCode(editor: any): void {
   for (const [blockId, code] of Array.from(pendingCode)) {
     pendingCode.delete(blockId);
-    const block = editor.document.find((b: { id: string }) => b.id === blockId);
-    if (!block) continue;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (((block.props as any).code ?? "") === code) continue;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    editor.updateBlock(block, { props: { code } as any });
+    updateBlockCode(editor, blockId, code);
   }
 }
+
+function updateBlockCode(editor: any, blockId: string, code: string): void {
+  const block = editor.document.find((b: { id: string }) => b.id === blockId);
+  if (!block) return;
+  if (((block.props as any).code ?? "") === code) return;
+  editor.updateBlock(block, { props: { code } as any });
+}
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -85,9 +86,21 @@ const STOP_PATH = "M3 3h10v10H3z";
 const CHEVRON_DOWN = "M3.3 5.7a1 1 0 0 1 1.4 0L8 9.6l3.3-3.9a1 1 0 0 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4Z";
 const CHEVRON_UP = "M3.3 10.3a1 1 0 0 1 1.4 0L8 6.4l3.3 3.9a1 1 0 0 1 1.4-1.4l-4-4a1 1 0 0 1-1.4 0l-4 4a1 1 0 0 1 0 1.4Z";
 
+function fillRunButton(btn: HTMLButtonElement, running: boolean): void {
+  btn.disabled = running;
+  btn.className = `run-btn flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition ${
+    running ? "bg-accent/15 text-accent" : "bg-accent text-white hover:opacity-90"
+  }`;
+  btn.replaceChildren();
+  btn.appendChild(
+    svgIcon(running ? STOP_PATH : PLAY_PATH, `h-3 w-3${running ? " animate-pulse" : ""}`)
+  );
+  btn.appendChild(document.createTextNode(running ? " 运行中..." : " 运行"));
+}
+
 function createRunBlockDOM(
   blockId: string,
-  kind: "python" | "shell",
+  kind: RunBlockKind,
   code: string,
   onUpdate: (code: string) => void
 ) {
@@ -113,35 +126,22 @@ function createRunBlockDOM(
   const label = el("span", {
     className: `flex items-center gap-1 text-[11px] font-medium ${isPython ? "text-code-label" : "text-shell-label"}`,
   });
-  const icon = svgIcon(isPython ? PLAY_PATH : TERMINAL_PATH, "h-3 w-3");
-  label.appendChild(icon);
+  label.appendChild(svgIcon(isPython ? PLAY_PATH : TERMINAL_PATH, "h-3 w-3"));
   label.appendChild(document.createTextNode(isPython ? "Python" : "Shell"));
   header.appendChild(label);
 
   const fenceLabel = el("span", { className: "text-[10px] text-muted" });
-  fenceLabel.textContent = isPython ? "```python-run" : "```shell-run";
+  fenceLabel.textContent = `\`\`\`${kind}-run`;
   header.appendChild(fenceLabel);
 
-  const spacer = el("div", { className: "flex-1" });
-  header.appendChild(spacer);
+  header.appendChild(el("div", { className: "flex-1" }));
 
-  const runBtn = el("button", {
-    className: `run-btn flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition ${
-      running ? "bg-accent/15 text-accent" : "bg-accent text-white hover:opacity-90"
-    }`,
-  });
+  const runBtn = el("button", {});
+  fillRunButton(runBtn, running);
   runBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     ctx?.onRun(blockId);
   });
-  if (running) {
-    runBtn.appendChild(svgIcon(STOP_PATH, "h-3 w-3 animate-pulse"));
-    runBtn.appendChild(document.createTextNode(" 运行中..."));
-    runBtn.disabled = true;
-  } else {
-    runBtn.appendChild(svgIcon(PLAY_PATH, "h-3 w-3"));
-    runBtn.appendChild(document.createTextNode(" 运行"));
-  }
   header.appendChild(runBtn);
 
   const delBtn = el("button", {
@@ -158,9 +158,9 @@ function createRunBlockDOM(
 
   const codeEditor = el("div", { className: "code-editor" });
 
-  const highlighted = isPython ? highlightPython(initialCode) : highlightShell(initialCode);
+  const lang = isPython ? "python" : "bash";
   const pre = el("pre", { className: "code-editor-pre", "aria-hidden": "true" });
-  pre.innerHTML = highlighted;
+  pre.innerHTML = highlightCode(initialCode, lang);
   codeEditor.appendChild(pre);
 
   const textarea = el("textarea", {
@@ -174,7 +174,7 @@ function createRunBlockDOM(
   textarea.value = initialCode;
   textarea.addEventListener("input", () => {
     pendingCode.set(blockId, textarea.value);
-    pre.innerHTML = isPython ? highlightPython(textarea.value) : highlightShell(textarea.value);
+    pre.innerHTML = highlightCode(textarea.value, lang);
   });
   textarea.addEventListener("blur", () => {
     // Deferred so an in-progress click (e.g. on the run button) still lands
@@ -194,6 +194,15 @@ function createRunBlockDOM(
   return wrapper;
 }
 
+const OUTPUT_PRE_CLASS =
+  "whitespace-pre-wrap break-words px-3 py-2 font-mono text-[12px] leading-relaxed";
+
+function outputPre(text: string, colorClass: string): HTMLElement {
+  const pre = el("pre", { className: `${OUTPUT_PRE_CLASS} ${colorClass}` });
+  pre.textContent = text;
+  return pre;
+}
+
 function createOutputDOM(
   ctx: RunBlockContextValue | null,
   outputKey: string,
@@ -207,14 +216,10 @@ function createOutputDOM(
     className: "flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] text-muted transition hover:bg-hover hover:text-foreground",
   });
 
-  const chevron = svgIcon(collapsed ? CHEVRON_DOWN : CHEVRON_UP, "h-3 w-3");
-  toggle.appendChild(chevron);
+  toggle.appendChild(svgIcon(collapsed ? CHEVRON_DOWN : CHEVRON_UP, "h-3 w-3"));
   toggle.appendChild(el("span", { className: "font-medium text-foreground" }, "输出"));
 
-  const stdout = output.stdout ?? "";
-  const stderr = output.stderr ?? "";
-  const error = output.error ?? "";
-  const lineCount = [stdout, stderr, error].reduce(
+  const lineCount = [output.stdout ?? "", output.stderr ?? "", output.error ?? ""].reduce(
     (n, s) => n + s.split("\n").filter((l) => l.length > 0).length,
     0
   );
@@ -238,28 +243,16 @@ function createOutputDOM(
   if (!collapsed) {
     const content = el("div");
 
-    if (stdout || error) {
-      const pre = el("pre", {
-        className: `whitespace-pre-wrap break-words px-3 py-2 font-mono text-[12px] leading-relaxed ${error ? "text-danger" : "text-code-out"}`,
-      });
-      pre.textContent = stdout;
-      content.appendChild(pre);
+    if (output.stdout || output.error) {
+      content.appendChild(
+        outputPre(output.stdout ?? "", output.error ? "text-danger" : "text-code-out")
+      );
     }
-
-    if (stderr) {
-      const pre = el("pre", {
-        className: "whitespace-pre-wrap break-words px-3 py-2 font-mono text-[12px] leading-relaxed text-warn",
-      });
-      pre.textContent = stderr;
-      content.appendChild(pre);
+    if (output.stderr) {
+      content.appendChild(outputPre(output.stderr, "text-warn"));
     }
-
-    if (error) {
-      const pre = el("pre", {
-        className: "whitespace-pre-wrap break-words px-3 py-2 font-mono text-[12px] leading-relaxed text-danger",
-      });
-      pre.textContent = error;
-      content.appendChild(pre);
+    if (output.error) {
+      content.appendChild(outputPre(output.error, "text-danger"));
     }
 
     if (output.timedOut) {
@@ -290,7 +283,6 @@ function createOutputDOM(
 // Called when outputs / running state change, since those live outside the
 // editor and don't trigger node view re-creation on their own.
 export function refreshRunBlockDOM(ctx: RunBlockContextValue): void {
-  if (!ctx) return;
   const wrappers = document.querySelectorAll<HTMLElement>(
     ".run-block-wrapper[data-block-id]"
   );
@@ -300,22 +292,8 @@ export function refreshRunBlockDOM(ctx: RunBlockContextValue): void {
     const inner = wrapper.querySelector<HTMLElement>(":scope > .run-block-inner");
     if (!inner) continue;
 
-    const running = ctx.isRunning(outputKey);
     const runBtn = inner.querySelector<HTMLButtonElement>(":scope > .run-block-header > .run-btn");
-    if (runBtn) {
-      runBtn.disabled = running;
-      runBtn.className = `run-btn flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition ${
-        running ? "bg-accent/15 text-accent" : "bg-accent text-white hover:opacity-90"
-      }`;
-      runBtn.replaceChildren();
-      if (running) {
-        runBtn.appendChild(svgIcon(STOP_PATH, "h-3 w-3 animate-pulse"));
-        runBtn.appendChild(document.createTextNode(" 运行中..."));
-      } else {
-        runBtn.appendChild(svgIcon(PLAY_PATH, "h-3 w-3"));
-        runBtn.appendChild(document.createTextNode(" 运行"));
-      }
-    }
+    if (runBtn) fillRunButton(runBtn, ctx.isRunning(outputKey));
 
     inner.querySelector(":scope > .run-block-output")?.remove();
     const output = ctx.getOutput(outputKey);
@@ -325,92 +303,43 @@ export function refreshRunBlockDOM(ctx: RunBlockContextValue): void {
   }
 }
 
-export const PythonRunBlock = createBlockSpec(
-  {
-    type: "pythonRun" as const,
-    propSchema: {
-      ...defaultProps,
-      code: { default: "" },
+function makeRunBlock(kind: RunBlockKind) {
+  return createBlockSpec(
+    {
+      type: `${kind}Run` as const,
+      propSchema: {
+        ...defaultProps,
+        code: { default: "" },
+      },
+      content: "none",
     },
-    content: "none",
-  },
-  {
-    meta: {
-      // Lets the browser handle events within the block (e.g. textarea focus
-      // and typing), instead of ProseMirror intercepting them.
-      selectable: false,
-    },
-    render: (block, editor) => {
-      const blockId = block.id;
-      const code = block.props.code;
-
-      const dom = createRunBlockDOM(blockId, "python", code, (newCode) => {
-        const b = editor.document.find((bl) => bl.id === blockId);
-        if (!b) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (((b.props as any).code ?? "") === newCode) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        editor.updateBlock(b, { props: { code: newCode } as any });
-      });
-
-      return { dom };
-    },
-    toExternalHTML: (block) => {
-      const pre = document.createElement("pre");
-      const code = document.createElement("code");
-      code.className = "language-python-run";
-      code.textContent = block.props.code;
-      pre.appendChild(code);
-      return { dom: pre };
-    },
-  }
-);
-
-export const ShellRunBlock = createBlockSpec(
-  {
-    type: "shellRun" as const,
-    propSchema: {
-      ...defaultProps,
-      code: { default: "" },
-    },
-    content: "none",
-  },
-  {
-    meta: {
-      // Lets the browser handle events within the block (e.g. textarea focus
-      // and typing), instead of ProseMirror intercepting them.
-      selectable: false,
-    },
-    render: (block, editor) => {
-      const blockId = block.id;
-      const code = block.props.code;
-
-      const dom = createRunBlockDOM(blockId, "shell", code, (newCode) => {
-        const b = editor.document.find((bl) => bl.id === blockId);
-        if (!b) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (((b.props as any).code ?? "") === newCode) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        editor.updateBlock(b, { props: { code: newCode } as any });
-      });
-
-      return { dom };
-    },
-    toExternalHTML: (block) => {
-      const pre = document.createElement("pre");
-      const code = document.createElement("code");
-      code.className = "language-shell-run";
-      code.textContent = block.props.code;
-      pre.appendChild(code);
-      return { dom: pre };
-    },
-  }
-);
+    {
+      meta: {
+        // Lets the browser handle events within the block (e.g. textarea focus
+        // and typing), instead of ProseMirror intercepting them.
+        selectable: false,
+      },
+      render: (block, editor) => ({
+        dom: createRunBlockDOM(block.id, kind, block.props.code, (newCode) =>
+          updateBlockCode(editor, block.id, newCode)
+        ),
+      }),
+      toExternalHTML: (block) => {
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        code.className = `language-${kind}-run`;
+        code.textContent = block.props.code;
+        pre.appendChild(code);
+        return { dom: pre };
+      },
+    }
+  )();
+}
 
 export const notebookSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
-    pythonRun: PythonRunBlock(),
-    shellRun: ShellRunBlock(),
+    pythonRun: makeRunBlock("python"),
+    shellRun: makeRunBlock("shell"),
   },
 });

@@ -75,7 +75,7 @@ export default function FileExplorer({ projectId }: Props) {
 
   function parentOf(p: string): string {
     const idx = p.lastIndexOf("/");
-    return idx >= 0 ? p.slice(0, idx) : "";
+    return idx > 0 ? p.slice(0, idx) : "";
   }
 
   function refresh() {
@@ -83,9 +83,31 @@ export default function FileExplorer({ projectId }: Props) {
     void load();
   }
 
-  function dirOf(rel: string): string {
-    const idx = rel.lastIndexOf("/");
-    return idx > 0 ? rel.slice(0, idx) : "";
+  async function reload() {
+    setLoading(true);
+    await load();
+  }
+
+  /** POSTs JSON, alerts on failure, then refreshes the listing. */
+  async function postAndReload(
+    url: string,
+    body: unknown,
+    failLabel: string
+  ): Promise<void> {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || failLabel);
+      }
+      await reload();
+    } catch (e) {
+      alert((e as Error).message);
+    }
   }
 
   interface UploadItem {
@@ -128,7 +150,7 @@ export default function FileExplorer({ projectId }: Props) {
             try {
               files.push({
                 name: file.name,
-                relpath: dirOf(rel),
+                relpath: parentOf(rel),
                 data: await file.arrayBuffer(),
               });
               resolve();
@@ -182,7 +204,7 @@ export default function FileExplorer({ projectId }: Props) {
         items = await Promise.all(
           list.map(async (f) => ({
             name: f.name,
-            relpath: dirOf(f.webkitRelativePath),
+            relpath: parentOf(f.webkitRelativePath),
             data: await f.arrayBuffer(),
           }))
         );
@@ -221,7 +243,7 @@ export default function FileExplorer({ projectId }: Props) {
         done++;
       }
       for (const dir of dirs) {
-        const parent = dirOf(dir);
+        const parent = parentOf(dir);
         const dirName = dir.split("/").pop() ?? "";
         setProgress([done, items.length + dirs.length]);
         await fetch(`/api/projects/${projectId}/files/mkdir`, {
@@ -235,8 +257,7 @@ export default function FileExplorer({ projectId }: Props) {
       setUploading(false);
       setProgress(null);
       if (failed > 0) alert(`有 ${failed} 个文件上传失败`);
-      setLoading(true);
-      await load();
+      await reload();
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
@@ -271,21 +292,11 @@ export default function FileExplorer({ projectId }: Props) {
   async function handleNewFolder() {
     const name = window.prompt("新建文件夹名称:");
     if (!name) return;
-    try {
-      const res = await fetch(`/api/projects/${projectId}/files/mkdir`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, name }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || "创建失败");
-      }
-      setLoading(true);
-      await load();
-    } catch (e) {
-      alert((e as Error).message);
-    }
+    await postAndReload(
+      `/api/projects/${projectId}/files/mkdir`,
+      { path, name },
+      "创建失败"
+    );
   }
 
   async function handleDelete(entry: FileEntry) {
@@ -293,21 +304,11 @@ export default function FileExplorer({ projectId }: Props) {
       ? `确定删除文件夹 ${entry.name} 及其全部内容?`
       : `确定删除文件 ${entry.name}?`;
     if (!window.confirm(msg)) return;
-    try {
-      const res = await fetch(`/api/projects/${projectId}/files/delete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: entry.path }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.error || "删除失败");
-      }
-      setLoading(true);
-      await load();
-    } catch (e) {
-      alert((e as Error).message);
-    }
+    await postAndReload(
+      `/api/projects/${projectId}/files/delete`,
+      { path: entry.path },
+      "删除失败"
+    );
   }
 
   const crumbs = path.split("/").filter(Boolean);

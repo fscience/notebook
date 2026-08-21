@@ -30,9 +30,7 @@ export async function GET(
     const errorStream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ type: "error", text: msg })}\n\n`
-          )
+          encoder.encode(`data: ${JSON.stringify({ type: "error", text: msg })}\n\n`)
         );
         controller.close();
       },
@@ -45,24 +43,23 @@ export async function GET(
   let ended = false;
   let closed = false;
 
+  function wake() {
+    if (!waiting) return;
+    const w = waiting;
+    waiting = null;
+    w();
+  }
+
   function push(obj: unknown) {
     if (closed || ended) return;
     buffer.push(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-    if (waiting) {
-      const w = waiting;
-      waiting = null;
-      w();
-    }
+    wake();
   }
 
   function finish() {
     if (ended) return;
     ended = true;
-    if (waiting) {
-      const w = waiting;
-      waiting = null;
-      w();
-    }
+    wake();
   }
 
   const myStream = setStream(id, cellId, {
@@ -108,11 +105,7 @@ export async function GET(
     cancel() {
       closed = true;
       if (currentStream(id, cellId) === myStream) session.kill();
-      if (waiting) {
-        const w = waiting;
-        waiting = null;
-        w();
-      }
+      wake();
     },
   });
 

@@ -2,41 +2,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { extractDocLinks, ROOT_DOC_NAME } from "@/lib/wiki";
 import { parseContent, runBlockKey, serializeBlock, type RunSegment } from "@/lib/runblock";
+import type { CellOutput, Document, FileEntry, Project } from "@/lib/types";
 
-export interface Project {
-  id: string;
-  name: string;
-  createdAt: string;
-}
-
-export interface CellOutput {
-  stdout?: string;
-  stderr?: string;
-  error?: string;
-  timedOut?: boolean;
-  images?: { name: string; data: string; mime: string }[];
-  collapsed?: boolean;
-}
+export type { CellOutput, Document, FileEntry, Project };
 
 interface LegacyCell {
   id?: string;
   type: "markdown" | "code" | "shell";
   content: string;
   output?: CellOutput;
-}
-
-export interface Document {
-  name: string;
-  content: string;
-  outputs?: Record<string, CellOutput>;
-}
-
-export interface FileEntry {
-  name: string;
-  path: string;
-  isDir: boolean;
-  size: number;
-  mtime: string;
 }
 
 export const DEFAULT_DATA_ROOT = path.join(process.cwd(), "data");
@@ -335,15 +309,20 @@ export async function listFiles(id: string, relPath = ""): Promise<FileEntry[]> 
   return out;
 }
 
+function sanitizeName(name: string, label: string): string {
+  const clean = String(name || "")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
+    .trim();
+  if (!clean) throw new Error(`${label}名称无效`);
+  return clean;
+}
+
 export async function makeDir(
   id: string,
   relPath: string,
   name: string
 ): Promise<void> {
-  const clean = name
-    .trim()
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_");
-  if (!clean) throw new Error("文件夹名称无效");
+  const clean = sanitizeName(name, "文件夹");
   const parent = await resolveFilePath(id, relPath);
   await fs.mkdir(path.join(parent, clean));
 }
@@ -363,10 +342,7 @@ export async function saveUploadedFile(
   name: string,
   buffer: Buffer
 ): Promise<void> {
-  const clean = name
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
-    .trim();
-  if (!clean) throw new Error("文件名无效");
+  const clean = sanitizeName(name, "文件");
   const sub = String(subpath || "").replace(/^\/+|\/+$/g, "");
   const dir = await resolveFilePath(id, sub ? `${relPath}/${sub}` : relPath);
   await fs.mkdir(dir, { recursive: true });

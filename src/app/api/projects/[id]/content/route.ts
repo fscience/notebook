@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
-import { saveDocument, type CellOutput } from "@/lib/storage";
+import { NextRequest } from "next/server";
+import { handle, ok, readJson, str } from "@/lib/api";
+import { saveDocument } from "@/lib/storage";
+import type { CellOutput } from "@/lib/types";
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
+  return handle(async () => {
     const { id } = await params;
-    const body = await request.json().catch(() => ({}));
-    const name = typeof body.name === "string" ? body.name : "";
-    const content = typeof body.content === "string" ? body.content : "";
+    const body = await readJson(request);
     const outputs: Record<string, CellOutput> = {};
     if (body.outputs && typeof body.outputs === "object") {
       for (const [key, value] of Object.entries(body.outputs)) {
@@ -18,12 +18,14 @@ export async function PUT(
         }
       }
     }
-    const documents = await saveDocument(id, name, content, outputs);
-    return NextResponse.json({ ok: true, documents });
-  } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 }
-    );
-  }
+    return ok({
+      ok: true,
+      documents: await saveDocument(
+        id,
+        str(body, "name"),
+        str(body, "content"),
+        outputs
+      ),
+    });
+  });
 }

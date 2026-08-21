@@ -1,18 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { handle, ok } from "@/lib/api";
 import { envStatus } from "@/lib/env";
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
+  return handle(async () => {
     const { id } = await params;
-    const status = await envStatus(id);
-    return NextResponse.json(status);
-  } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 }
-    );
-  }
+    return ok(await envStatus(id));
+  });
 }

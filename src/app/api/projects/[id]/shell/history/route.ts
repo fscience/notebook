@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { handle, ok } from "@/lib/api";
 import {
   clearShellHistory,
   getShellCwd,
@@ -10,7 +11,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
+  return handle(async () => {
     const { id } = await params;
     const cell = request.nextUrl.searchParams.get("cell") ?? "";
     const [commands, cwd, root] = await Promise.all([
@@ -18,28 +19,18 @@ export async function GET(
       getShellCwd(id, cell),
       projectFilesDir(id),
     ]);
-    return NextResponse.json({ commands, cwd, root });
-  } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 }
-    );
-  }
+    return ok({ commands, cwd, root });
+  });
 }
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
+  return handle(async () => {
     const { id } = await params;
     const cell = request.nextUrl.searchParams.get("cell") ?? "";
     await clearShellHistory(id, cell);
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 }
-    );
-  }
+    return ok({ ok: true });
+  });
 }

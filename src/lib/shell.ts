@@ -8,9 +8,6 @@ const DEFAULT_CELL = "default";
 const HISTORY_LIMIT = 1000;
 
 export interface PtySession {
-  key: string;
-  id: string;
-  cellId: string;
   cwd: string;
   root: string;
   alive: boolean;
@@ -296,9 +293,6 @@ async function doAttach(
   });
 
   const session: PtySession = {
-    key,
-    id,
-    cellId,
     cwd: root,
     root,
     alive: true,
@@ -355,10 +349,11 @@ async function histfilePath(id: string, cellId: string): Promise<string> {
 }
 
 export async function getShellHistory(id: string, cellId?: string): Promise<string[]> {
-  const live = getLiveCommands(id, safeCell(cellId ?? ""));
+  const clean = safeCell(cellId);
+  const live = getLiveCommands(id, clean);
   if (live.length > 0) return [...live];
   try {
-    const raw = await fs.readFile(await histfilePath(id, safeCell(cellId)), "utf8");
+    const raw = await fs.readFile(await histfilePath(id, clean), "utf8");
     return raw
       .split("\n")
       .map((line) => line.replace(/^:\s*\d+:\d+;\s*/, "").trim())

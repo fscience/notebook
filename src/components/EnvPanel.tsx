@@ -46,56 +46,48 @@ export default function EnvPanel({ projectId }: Props) {
     void load();
   }, [load]);
 
-  async function install() {
-    const names = input
-      .split(/[\s,]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (names.length === 0 || busy) return;
-    setBusy("install");
+  async function mutate(
+    action: "install" | "uninstall",
+    packages: string[],
+    busyKey: string,
+    failLabel: string
+  ) {
+    if (busy) return;
+    setBusy(busyKey);
     setError(null);
     setOutput(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/env/install`, {
+      const res = await fetch(`/api/projects/${projectId}/env/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packages: names }),
+        body: JSON.stringify({ packages }),
       });
       const data = await res.json();
       setOutput(data.output ?? "");
-      if (!res.ok) {
-        setError(data.error || "安装失败");
-      }
+      if (!res.ok) setError(data.error || `${failLabel}失败`);
       await load();
-      if (res.ok) setInput("");
+      return res.ok;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(null);
     }
   }
 
+  async function install() {
+    const names = input
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (names.length === 0) return;
+    if (await mutate("install", names, "install", "安装")) setInput("");
+  }
+
   async function uninstall(name: string) {
     if (busy) return;
     if (!window.confirm(`确定卸载 ${name}?`)) return;
-    setBusy(`uninstall:${name}`);
-    setError(null);
-    setOutput(null);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/env/uninstall`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packages: [name] }),
-      });
-      const data = await res.json();
-      setOutput(data.output ?? "");
-      if (!res.ok) setError(data.error || "卸载失败");
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
+    await mutate("uninstall", [name], `uninstall:${name}`, "卸载");
   }
 
   return (

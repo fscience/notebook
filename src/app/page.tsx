@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Project } from "@/lib/types";
 import ProjectList from "@/components/ProjectList";
 import Notebook, {
@@ -17,29 +18,60 @@ import { ROOT_DOC_NAME } from "@/lib/wiki";
 const MIN_RIGHT_WIDTH = 200;
 const MIN_SHELL_HEIGHT = 120;
 
+/** Pointer-capture based panel resizing along one axis. */
+function usePanelResize(initial: number, min: number, axis: "x" | "y") {
+  const [size, setSize] = useState(initial);
+  const [dragging, setDragging] = useState(false);
+  const startRef = useRef<{ pos: number; size: number } | null>(null);
+
+  function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    startRef.current = { pos: axis === "x" ? e.clientX : e.clientY, size };
+    setDragging(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const start = startRef.current;
+    if (!start) return;
+    const delta = (axis === "x" ? e.clientX : e.clientY) - start.pos;
+    const max = Math.max(min, (axis === "x" ? window.innerWidth : window.innerHeight) * 0.7);
+    setSize(Math.min(Math.max(start.size - delta, min), max));
+  }
+
+  function onPointerEnd(e: ReactPointerEvent<HTMLDivElement>) {
+    startRef.current = null;
+    setDragging(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+  }
+
+  return {
+    size,
+    dragging,
+    handlers: { onPointerDown, onPointerMove, onPointerUp: onPointerEnd, onPointerCancel: onPointerEnd },
+  };
+}
+
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [rightTab, setRightTab] = useState<"files" | "env">("files");
-  const [rightWidth, setRightWidth] = useState(288);
   const [loadingProjects, setLoadingProjects] = useState(true);
-  const [draggingRight, setDraggingRight] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shellOpen, setShellOpen] = useState(false);
-  const [shellHeight, setShellHeight] = useState(260);
-  const [draggingShell, setDraggingShell] = useState(false);
   const [headerInfo, setHeaderInfo] = useState<NotebookHeaderState | null>(
     null
   );
   const notebookRef = useRef<NotebookHandle | null>(null);
-  const rightDragRef = useRef<{ startX: number; startWidth: number } | null>(
-    null
-  );
-  const shellDragRef = useRef<{ startY: number; startHeight: number } | null>(
-    null
-  );
+
+  const rightPanel = usePanelResize(288, MIN_RIGHT_WIDTH, "x");
+  const shellPanel = usePanelResize(260, MIN_SHELL_HEIGHT, "y");
 
   const selected = projects.find((p) => p.id === selectedId) ?? null;
 
@@ -114,64 +146,10 @@ export default function Home() {
     );
   }
 
-  function startRightDrag(e: React.PointerEvent<HTMLDivElement>) {
-    e.preventDefault();
-    rightDragRef.current = { startX: e.clientX, startWidth: rightWidth };
-    setDraggingRight(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }
-
-  function onRightDragMove(e: React.PointerEvent<HTMLDivElement>) {
-    const drag = rightDragRef.current;
-    if (!drag) return;
-    const delta = e.clientX - drag.startX;
-    const max = Math.max(MIN_RIGHT_WIDTH, window.innerWidth * 0.7);
-    setRightWidth(
-      Math.min(Math.max(drag.startWidth - delta, MIN_RIGHT_WIDTH), max)
-    );
-  }
-
-  function endRightDrag(e: React.PointerEvent<HTMLDivElement>) {
-    rightDragRef.current = null;
-    setDraggingRight(false);
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      /* already released */
-    }
-  }
-
-  function startShellDrag(e: React.PointerEvent<HTMLDivElement>) {
-    e.preventDefault();
-    shellDragRef.current = { startY: e.clientY, startHeight: shellHeight };
-    setDraggingShell(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }
-
-  function onShellDragMove(e: React.PointerEvent<HTMLDivElement>) {
-    const drag = shellDragRef.current;
-    if (!drag) return;
-    const delta = e.clientY - drag.startY;
-    const max = Math.max(MIN_SHELL_HEIGHT, window.innerHeight * 0.7);
-    setShellHeight(
-      Math.min(Math.max(drag.startHeight - delta, MIN_SHELL_HEIGHT), max)
-    );
-  }
-
-  function endShellDrag(e: React.PointerEvent<HTMLDivElement>) {
-    shellDragRef.current = null;
-    setDraggingShell(false);
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      /* already released */
-    }
-  }
-
   return (
     <div
       className={`flex h-screen w-full overflow-hidden ${
-        draggingRight || draggingShell ? "select-none" : ""
+        rightPanel.dragging || shellPanel.dragging ? "select-none" : ""
       }`}
     >
       {!leftCollapsed && (
@@ -314,14 +292,11 @@ export default function Home() {
 
         {shellOpen && selected && (
           <div
-            style={{ height: shellHeight }}
+            style={{ height: shellPanel.size }}
             className="flex shrink-0 flex-col border-t border-panel-border bg-panel-bg"
           >
             <div
-              onPointerDown={startShellDrag}
-              onPointerMove={onShellDragMove}
-              onPointerUp={endShellDrag}
-              onPointerCancel={endShellDrag}
+              {...shellPanel.handlers}
               className="group flex h-1.5 shrink-0 cursor-row-resize items-center justify-center border-b border-panel-border transition-colors hover:bg-accent/50 active:bg-accent"
               title="拖动调整高度"
             >
@@ -352,15 +327,12 @@ export default function Home() {
       {!rightCollapsed && (
         <>
           <div
-            onPointerDown={startRightDrag}
-            onPointerMove={onRightDragMove}
-            onPointerUp={endRightDrag}
-            onPointerCancel={endRightDrag}
+            {...rightPanel.handlers}
             className="w-1 shrink-0 cursor-col-resize border-l border-panel-border bg-panel-bg transition-colors hover:bg-accent/50 active:bg-accent"
             title="拖动调整宽度"
           />
           <aside
-            style={{ width: rightWidth }}
+            style={{ width: rightPanel.size }}
             className="flex shrink-0 flex-col border-l border-panel-border bg-panel-bg"
           >
             {selected ? (

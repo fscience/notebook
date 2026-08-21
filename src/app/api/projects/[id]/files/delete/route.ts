@@ -1,19 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { handle, ok, readJson, str } from "@/lib/api";
 import { removeEntry } from "@/lib/storage";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
+  return handle(async () => {
     const { id } = await params;
-    const body = await request.json().catch(() => ({}));
-    await removeEntry(id, String(body.path ?? ""));
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 }
-    );
-  }
+    const body = await readJson(request);
+    await removeEntry(id, str(body, "path"));
+    return ok({ ok: true });
+  });
 }

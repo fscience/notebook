@@ -135,6 +135,9 @@ export default function ShellTerminal({
     });
     resizeObserver.observe(container);
 
+    const RECONNECT_DELAY = 1500;
+    const reconnect = () => setTimeout(() => void connect(), RECONNECT_DELAY);
+
     async function connect() {
       if (!alive) return;
       try {
@@ -163,7 +166,7 @@ export default function ShellTerminal({
       } catch (e) {
         if (alive && !isAbortError(e)) {
           setError((e as Error).message);
-          setTimeout(() => void connect(), 1500);
+          reconnect();
         }
         return;
       }
@@ -177,14 +180,14 @@ export default function ShellTerminal({
       } catch (e) {
         if (alive && !isAbortError(e)) {
           setError("终端连接失败");
-          setTimeout(() => void connect(), 1500);
+          reconnect();
         }
         return;
       }
       if (!streamRes.ok || !streamRes.body) {
         if (alive) {
           setError("无法连接终端流");
-          setTimeout(() => void connect(), 1500);
+          reconnect();
         }
         return;
       }
@@ -239,9 +242,7 @@ export default function ShellTerminal({
       } finally {
         readyRef.current = false;
         if (alive) setConnected(false);
-        if (alive && !gotExit && streamFailed) {
-          setTimeout(() => void connect(), 1500);
-        }
+        if (alive && !gotExit && streamFailed) reconnect();
       }
     }
 

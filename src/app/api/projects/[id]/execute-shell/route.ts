@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { handle, ok, readJson, str } from "@/lib/api";
 import { projectFilesDir } from "@/lib/storage";
-import { runShell, type ShellResult } from "@/lib/runShell";
+import { runShell } from "@/lib/runShell";
 
 export const maxDuration = 120;
 
@@ -8,18 +9,13 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
+  return handle(async () => {
     const { id } = await params;
-    const body = await request.json().catch(() => ({}));
-    const commands = typeof body.commands === "string" ? body.commands : "";
-    const result: ShellResult = await runShell(commands, {
-      cwd: await projectFilesDir(id),
-    });
-    return NextResponse.json(result);
-  } catch (err) {
-    return NextResponse.json(
-      { error: (err as Error).message },
-      { status: 500 }
+    const body = await readJson(request);
+    return ok(
+      await runShell(str(body, "commands"), {
+        cwd: await projectFilesDir(id),
+      })
     );
-  }
+  });
 }

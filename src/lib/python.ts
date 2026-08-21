@@ -1,7 +1,7 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { runProc } from "./exec";
 
 export interface PythonResult {
   stdout: string;
@@ -39,39 +39,39 @@ except Exception:
     pass
 `;
 
+const MIME_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".bmp": "image/bmp",
+};
+
 function mimeFor(ext: string): string {
-  switch (ext) {
-    case ".png":
-      return "image/png";
-    case ".jpg":
-    case ".jpeg":
-      return "image/jpeg";
-    case ".gif":
-      return "image/gif";
-    case ".webp":
-      return "image/webp";
-    case ".svg":
-      return "image/svg+xml";
-    case ".pdf":
-      return "application/pdf";
-    case ".bmp":
-      return "image/bmp";
-    default:
-      return "application/octet-stream";
-  }
+  return MIME_BY_EXT[ext] ?? "application/octet-stream";
 }
 
-export function runPython(
+async function collectImage(fp: string) {
+  const data = await fs.readFile(fp);
+  return {
+    name: path.basename(fp),
+    mime: mimeFor(path.extname(fp).toLowerCase()),
+    data: data.toString("base64"),
+  };
+}
+
+export async function runPython(
   code: string,
   opts: { cwd: string; pythonPath: string; timeout?: number }
 ): Promise<PythonResult> {
-  const timeoutMs = opts.timeout ?? 60000;
-
-  return new Promise(async (resolve) => {
-    let done = false;
-    const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "nb-out-"));
-    const child = spawn(opts.pythonPath, ["-u", "-c", PREAMBLE + "\n" + code], {
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "nb-out-"));
+  try {
+    const res = await runProc(opts.pythonPath, ["-u", "-c", PREAMBLE + "\n" + code], {
       cwd: opts.cwd,
+      timeout: opts.timeout ?? 60000,
       env: {
         ...process.env,
         NOTEBOOK_OUTPUT_DIR: outDir,
@@ -79,96 +79,47 @@ export function runPython(
       },
     });
 
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, timeoutMs);
-
-    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
-    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
-
-    async function finish(extra: {
-      error?: string;
-      stderr?: string;
-      timedOut?: boolean;
-    }) {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-
-      const images: { name: string; data: string; mime: string }[] = [];
-      const imgRe = /\[\[NOTEBOOK_IMAGE:([^\]]+)\]\]/g;
-      const lines = stdout.split("\n");
-      const cleaned: string[] = [];
-
-      for (const line of lines) {
-        imgRe.lastIndex = 0;
-        const m = imgRe.exec(line);
-        if (m) {
-          try {
-            const fp = m[1];
-            const data = await fs.readFile(fp);
-            images.push({
-              name: path.basename(fp),
-              mime: mimeFor(path.extname(fp).toLowerCase()),
-              data: data.toString("base64"),
-            });
-            await fs.rm(fp, { force: true }).catch(() => {});
-            cleaned.push("");
-          } catch {
-            cleaned.push(line);
-          }
-        } else {
-          cleaned.push(line);
-        }
+    // Replace image markers in stdout with inline base64 images.
+    const images: PythonResult["images"] = [];
+    const imgRe = /\[\[NOTEBOOK_IMAGE:([^\]]+)\]\]/;
+    const cleaned: string[] = [];
+    for (const line of res.stdout.split("\n")) {
+      const m = imgRe.exec(line);
+      if (!m) {
+        cleaned.push(line);
+        continue;
       }
-
-      // Pick up any image files written directly to the output dir.
       try {
-        const files = await fs.readdir(outDir);
-        for (const f of files) {
-          const fp = path.join(outDir, f);
-          const data = await fs.readFile(fp);
-          images.push({
-            name: f,
-            mime: mimeFor(path.extname(f).toLowerCase()),
-            data: data.toString("base64"),
-          });
-          await fs.rm(fp, { force: true }).catch(() => {});
-        }
+        images.push(await collectImage(m[1]));
+        await fs.rm(m[1], { force: true }).catch(() => {});
+        cleaned.push("");
       } catch {
-        /* no output dir */
+        cleaned.push(line);
       }
-      await fs.rmdir(outDir).catch(() => {});
-
-      resolve({
-        stdout: cleaned.join("\n"),
-        stderr,
-        images,
-        timedOut,
-        ...extra,
-      });
     }
 
-    child.on("error", (err) => {
-      void finish({
-        error: `无法启动 python3: ${err.message}`,
-      });
-    });
-
-    child.on("close", (code) => {
-      if (code === 0) {
-        void finish({});
-      } else {
-        void finish({
-          error: stderr.trim() || `进程退出，退出码 ${code ?? "unknown"}`,
-          stderr: "",
-        });
+    // Pick up any image files written directly to the output dir.
+    try {
+      for (const f of await fs.readdir(outDir)) {
+        images.push(await collectImage(path.join(outDir, f)));
       }
-    });
-  });
+    } catch {
+      /* no output dir */
+    }
+
+    return {
+      stdout: cleaned.join("\n"),
+      stderr:
+        res.code === 0 || res.error ? res.stderr : "",
+      error: res.error
+        ? `无法启动 python3: ${res.error}`
+        : res.code !== 0
+          ? res.stderr.trim() || `进程退出，退出码 ${res.code ?? "unknown"}`
+          : undefined,
+      images,
+      timedOut: res.timedOut,
+    };
+  } finally {
+    await fs.rm(outDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
