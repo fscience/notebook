@@ -7,6 +7,7 @@ import BlockNoteEditor, {
   type BlockNoteEditorHandle,
 } from "@/components/BlockNoteEditor";
 import { ChevronLeft } from "@/components/icons";
+import { runBlockKey } from "@/lib/runblock";
 import { ROOT_DOC_NAME } from "@/lib/wiki";
 
 export type SaveState = "saved" | "saving" | "dirty";
@@ -285,12 +286,12 @@ export default function Notebook({
     setSaveState("dirty");
   }
 
-  function handleRunBlock(blockId: string, kind: "python" | "shell") {
+  function handleRunBlock(key: string, kind: "python" | "shell") {
     if (runningKey != null) return;
-    setRunningKey(blockId);
+    setRunningKey(key);
     setOutputs((prev) => {
       const next = { ...prev };
-      delete next[blockId];
+      delete next[key];
       return next;
     });
 
@@ -298,7 +299,7 @@ export default function Notebook({
       try {
         let res: Response;
         if (kind === "shell") {
-          const code = editorHandleRef.current?.getBlockCode(blockId) ?? "";
+          const code = editorHandleRef.current?.getBlockCode(key) ?? "";
           res = await fetch(`/api/projects/${projectId}/execute-shell`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -306,7 +307,9 @@ export default function Notebook({
           });
         } else {
           const pythons = editorHandleRef.current?.getPythonBlocks() ?? [];
-          const idx = pythons.findIndex((b) => b.id === blockId);
+          const idx = pythons.findIndex(
+            (b) => runBlockKey("python", b.code) === key
+          );
           const codeCells = pythons.slice(0, idx + 1).map((b) => b.code);
           res = await fetch(`/api/projects/${projectId}/execute`, {
             method: "POST",
@@ -318,7 +321,7 @@ export default function Notebook({
         if (!res.ok) {
           setOutputs((prev) => ({
             ...prev,
-            [blockId]: {
+            [key]: {
               stdout: "",
               stderr: "",
               error: data.error || "执行失败",
@@ -327,7 +330,7 @@ export default function Notebook({
         } else {
           setOutputs((prev) => ({
             ...prev,
-            [blockId]: {
+            [key]: {
               stdout: data.stdout,
               stderr: data.stderr,
               error: data.error,
@@ -339,7 +342,7 @@ export default function Notebook({
       } catch {
         setOutputs((prev) => ({
           ...prev,
-          [blockId]: {
+          [key]: {
             stdout: "",
             stderr: "",
             error: "请求失败",
@@ -351,21 +354,21 @@ export default function Notebook({
     })();
   }
 
-  function handleDeleteBlock(blockId: string) {
+  function handleDeleteBlock(key: string) {
     pushUndo();
     setOutputs((prev) => {
-      if (!(blockId in prev)) return prev;
+      if (!(key in prev)) return prev;
       const next = { ...prev };
-      delete next[blockId];
+      delete next[key];
       return next;
     });
   }
 
-  function handleToggleOutput(blockId: string, collapsed: boolean) {
+  function handleToggleOutput(key: string, collapsed: boolean) {
     setOutputs((prev) => {
-      const output = prev[blockId];
+      const output = prev[key];
       if (!output) return prev;
-      return { ...prev, [blockId]: { ...output, collapsed } };
+      return { ...prev, [key]: { ...output, collapsed } };
     });
   }
 

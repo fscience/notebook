@@ -21,14 +21,14 @@ import {
   setRunBlockContext,
   type RunBlockContextValue,
 } from "@/lib/runBlockSchema";
-import { parseContent } from "@/lib/runblock";
+import { parseContent, runBlockKey } from "@/lib/runblock";
 import type { CellOutput } from "@/lib/types";
 import { Play, TerminalIcon } from "@/components/icons";
 
 export interface BlockNoteEditorHandle {
   insertRunBlock: (kind: "python" | "shell") => void;
   getPythonBlocks: () => { id: string; code: string }[];
-  getBlockCode: (blockId: string) => string;
+  getBlockCode: (key: string) => string;
 }
 
 interface Props {
@@ -108,7 +108,9 @@ export default function BlockNoteEditor({
       const block = editor.document.find((b) => b.id === blockId);
       if (!block) return;
       const kind = block.type === "pythonRun" ? "python" : "shell";
-      onRunBlockRef.current(blockId, kind as "python" | "shell");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const code = (block.props as any).code ?? "";
+      onRunBlockRef.current(runBlockKey(kind, code), kind as "python" | "shell");
     },
     onEdit: (blockId, code) => {
       const block = editor.document.find((b) => b.id === blockId);
@@ -119,8 +121,11 @@ export default function BlockNoteEditor({
     onDelete: (blockId) => {
       const block = editor.document.find((b) => b.id === blockId);
       if (!block) return;
+      const kind = block.type === "pythonRun" ? "python" : "shell";
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const code = (block.props as any).code ?? "";
       editor.removeBlocks([block]);
-      onDeleteBlockRef.current(blockId);
+      onDeleteBlockRef.current(runBlockKey(kind, code));
     },
     onToggleOutput: (blockId, collapsed) => {
       onToggleOutputRef.current(blockId, collapsed);
@@ -258,12 +263,16 @@ export default function BlockNoteEditor({
             code: (b.props as any).code ?? "",
           }));
       },
-      getBlockCode: (blockId) => {
+      getBlockCode: (key) => {
         flushPendingCode(editor);
-        const block = editor.document.find((b) => b.id === blockId);
-        if (!block) return "";
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (block.props as any).code ?? "";
+        for (const b of editor.document) {
+          if (b.type !== "pythonRun" && b.type !== "shellRun") continue;
+          const kind = b.type === "pythonRun" ? "python" : "shell";
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const code = (b.props as any).code ?? "";
+          if (runBlockKey(kind, code) === key) return code;
+        }
+        return "";
       },
     }),
     [editor]

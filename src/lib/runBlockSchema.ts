@@ -5,6 +5,7 @@ import {
   defaultProps,
 } from "@blocknote/core";
 import { highlightPython, highlightShell } from "@/lib/highlight";
+import { runBlockKey } from "@/lib/runblock";
 import type { CellOutput } from "@/lib/types";
 
 export interface RunBlockContextValue {
@@ -92,14 +93,18 @@ function createRunBlockDOM(
 ) {
   const ctx = getRunBlockContext();
   const isPython = kind === "python";
-  const output = ctx?.getOutput(blockId);
-  const running = ctx?.isRunning(blockId) ?? false;
   const initialCode = pendingCode.get(blockId) ?? code;
+  // Outputs are keyed by a content hash so they survive reloads and match the
+  // keys the storage layer uses (see saveDocument's validKeys pruning).
+  const outputKey = runBlockKey(kind, initialCode);
+  const output = ctx?.getOutput(outputKey);
+  const running = ctx?.isRunning(outputKey) ?? false;
 
   const wrapper = el("div", {
     className: "group run-block-wrapper",
     "data-block-id": blockId,
     "data-kind": kind,
+    "data-output-key": outputKey,
   });
   const inner = el("div", { className: "run-block-inner rounded-lg border border-cell-border bg-cell-bg" });
 
@@ -182,14 +187,14 @@ function createRunBlockDOM(
   inner.appendChild(codeEditor);
 
   if (output) {
-    inner.appendChild(createOutputDOM(blockId, output));
+    inner.appendChild(createOutputDOM(outputKey, output));
   }
 
   wrapper.appendChild(inner);
   return wrapper;
 }
 
-function createOutputDOM(blockId: string, output: CellOutput) {
+function createOutputDOM(outputKey: string, output: CellOutput) {
   const ctx = getRunBlockContext();
   const collapsed = !!output.collapsed;
 
@@ -222,7 +227,7 @@ function createOutputDOM(blockId: string, output: CellOutput) {
   toggle.appendChild(toggleLabel);
 
   toggle.addEventListener("click", () => {
-    ctx?.onToggleOutput(blockId, !collapsed);
+    ctx?.onToggleOutput(outputKey, !collapsed);
   });
 
   container.appendChild(toggle);
@@ -287,12 +292,12 @@ export function refreshRunBlockDOM(ctx: RunBlockContextValue): void {
     ".run-block-wrapper[data-block-id]"
   );
   for (const wrapper of wrappers) {
-    const blockId = wrapper.getAttribute("data-block-id");
-    if (!blockId) continue;
+    const outputKey = wrapper.getAttribute("data-output-key");
+    if (!outputKey) continue;
     const inner = wrapper.querySelector<HTMLElement>(":scope > .run-block-inner");
     if (!inner) continue;
 
-    const running = ctx.isRunning(blockId);
+    const running = ctx.isRunning(outputKey);
     const runBtn = inner.querySelector<HTMLButtonElement>(":scope > .run-block-header > .run-btn");
     if (runBtn) {
       runBtn.disabled = running;
@@ -310,9 +315,9 @@ export function refreshRunBlockDOM(ctx: RunBlockContextValue): void {
     }
 
     inner.querySelector(":scope > .run-block-output")?.remove();
-    const output = ctx.getOutput(blockId);
+    const output = ctx.getOutput(outputKey);
     if (output) {
-      inner.appendChild(createOutputDOM(blockId, output));
+      inner.appendChild(createOutputDOM(outputKey, output));
     }
   }
 }
