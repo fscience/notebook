@@ -352,6 +352,7 @@ body {
   gap: 0;
   border-radius: 8px;
   margin: 0 16px;
+  width: 100%;
 }
 
 .run-block-wrapper.selected {
