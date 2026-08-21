@@ -187,15 +187,18 @@ function createRunBlockDOM(
   inner.appendChild(codeEditor);
 
   if (output) {
-    inner.appendChild(createOutputDOM(outputKey, output));
+    inner.appendChild(createOutputDOM(ctx, outputKey, output));
   }
 
   wrapper.appendChild(inner);
   return wrapper;
 }
 
-function createOutputDOM(outputKey: string, output: CellOutput) {
-  const ctx = getRunBlockContext();
+function createOutputDOM(
+  ctx: RunBlockContextValue | null,
+  outputKey: string,
+  output: CellOutput
+) {
   const collapsed = !!output.collapsed;
 
   const container = el("div", { className: "run-block-output border-t border-cell-border" });
@@ -317,7 +320,7 @@ export function refreshRunBlockDOM(ctx: RunBlockContextValue): void {
     inner.querySelector(":scope > .run-block-output")?.remove();
     const output = ctx.getOutput(outputKey);
     if (output) {
-      inner.appendChild(createOutputDOM(outputKey, output));
+      inner.appendChild(createOutputDOM(ctx, outputKey, output));
     }
   }
 }

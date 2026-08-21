@@ -135,7 +135,8 @@ export default function BlockNoteEditor({
   useEffect(() => {
     setRunBlockContext(ctxRef.current);
     return () => setRunBlockContext(null);
-  });
+    // ctxRef.current is a stable object reading fresh values through refs.
+  }, []);
 
   const lastContentRef = useRef<string | null>(null);
 
