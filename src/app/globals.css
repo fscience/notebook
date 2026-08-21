@@ -364,11 +364,6 @@ body {
   min-width: 0;
 }
 
-.bn-container {
-  font-size: 14px;
-  line-height: 1.7;
-}
-
 .bn-container .bn-editor {
   font-family: var(--font-sans);
   padding: 4px 6px;
@@ -379,7 +374,3 @@ body {
   display: none;
 }
 
-.bn-container .bn-inline-content {
-  font-size: 14px;
-  line-height: 1.7;
-}

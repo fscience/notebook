@@ -26,6 +26,27 @@ export function getRunBlockContext(): RunBlockContextValue | null {
   return _runBlockCtx;
 }
 
+// Code edits are buffered here while the user types. Writing every keystroke
+// straight into the editor would recreate the block's node view (BlockNote
+// node views have no `update`), which destroys the textarea and steals focus.
+const pendingCode = new Map<string, string>();
+
+export function flushPendingCode(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editor: any
+): void {
+  if (pendingCode.size === 0) return;
+  for (const [blockId, code] of Array.from(pendingCode)) {
+    pendingCode.delete(blockId);
+    const block = editor.document.find((b: { id: string }) => b.id === blockId);
+    if (!block) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (((block.props as any).code ?? "") === code) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    editor.updateBlock(block, { props: { code } as any });
+  }
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   attrs?: Record<string, string>,
@@ -73,11 +94,16 @@ function createRunBlockDOM(
   const isPython = kind === "python";
   const output = ctx?.getOutput(blockId);
   const running = ctx?.isRunning(blockId) ?? false;
+  const initialCode = pendingCode.get(blockId) ?? code;
 
-  const wrapper = el("div", { className: "group run-block-wrapper" });
+  const wrapper = el("div", {
+    className: "group run-block-wrapper",
+    "data-block-id": blockId,
+    "data-kind": kind,
+  });
   const inner = el("div", { className: "run-block-inner rounded-lg border border-cell-border bg-cell-bg" });
 
-  const header = el("div", { className: "flex items-center gap-1 border-b border-cell-border px-2 py-1" });
+  const header = el("div", { className: "run-block-header flex items-center gap-1 border-b border-cell-border px-2 py-1" });
 
   const label = el("span", {
     className: `flex items-center gap-1 text-[11px] font-medium ${isPython ? "text-code-label" : "text-shell-label"}`,
@@ -95,21 +121,21 @@ function createRunBlockDOM(
   header.appendChild(spacer);
 
   const runBtn = el("button", {
-    className: `flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition ${
+    className: `run-btn flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition ${
       running ? "bg-accent/15 text-accent" : "bg-accent text-white hover:opacity-90"
     }`,
+  });
+  runBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    ctx?.onRun(blockId);
   });
   if (running) {
     runBtn.appendChild(svgIcon(STOP_PATH, "h-3 w-3 animate-pulse"));
     runBtn.appendChild(document.createTextNode(" 运行中..."));
-    runBtn.setAttribute("disabled", "true");
+    runBtn.disabled = true;
   } else {
     runBtn.appendChild(svgIcon(PLAY_PATH, "h-3 w-3"));
     runBtn.appendChild(document.createTextNode(" 运行"));
-    runBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      ctx?.onRun(blockId);
-    });
   }
   header.appendChild(runBtn);
 
@@ -127,7 +153,7 @@ function createRunBlockDOM(
 
   const codeEditor = el("div", { className: "code-editor" });
 
-  const highlighted = isPython ? highlightPython(code) : highlightShell(code);
+  const highlighted = isPython ? highlightPython(initialCode) : highlightShell(initialCode);
   const pre = el("pre", { className: "code-editor-pre", "aria-hidden": "true" });
   pre.innerHTML = highlighted;
   codeEditor.appendChild(pre);
@@ -140,9 +166,16 @@ function createRunBlockDOM(
     autocorrect: "off",
     placeholder: isPython ? "# 在这里编写 Python 代码..." : "# 在这里输入 Shell 命令...",
   }) as HTMLTextAreaElement;
-  textarea.value = code;
+  textarea.value = initialCode;
   textarea.addEventListener("input", () => {
-    onUpdate(textarea.value);
+    pendingCode.set(blockId, textarea.value);
+    pre.innerHTML = isPython ? highlightPython(textarea.value) : highlightShell(textarea.value);
+  });
+  textarea.addEventListener("blur", () => {
+    // Deferred so an in-progress click (e.g. on the run button) still lands
+    // before the node view gets recreated by the flush.
+    const value = textarea.value;
+    setTimeout(() => onUpdate(value), 0);
   });
   codeEditor.appendChild(textarea);
 
@@ -160,7 +193,7 @@ function createOutputDOM(blockId: string, output: CellOutput) {
   const ctx = getRunBlockContext();
   const collapsed = !!output.collapsed;
 
-  const container = el("div", { className: "border-t border-cell-border" });
+  const container = el("div", { className: "run-block-output border-t border-cell-border" });
 
   const toggle = el("button", {
     className: "flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] text-muted transition hover:bg-hover hover:text-foreground",
@@ -245,6 +278,45 @@ function createOutputDOM(blockId: string, output: CellOutput) {
   return container;
 }
 
+// Re-renders the output section and run button of every run block in place.
+// Called when outputs / running state change, since those live outside the
+// editor and don't trigger node view re-creation on their own.
+export function refreshRunBlockDOM(ctx: RunBlockContextValue): void {
+  if (!ctx) return;
+  const wrappers = document.querySelectorAll<HTMLElement>(
+    ".run-block-wrapper[data-block-id]"
+  );
+  for (const wrapper of wrappers) {
+    const blockId = wrapper.getAttribute("data-block-id");
+    if (!blockId) continue;
+    const inner = wrapper.querySelector<HTMLElement>(":scope > .run-block-inner");
+    if (!inner) continue;
+
+    const running = ctx.isRunning(blockId);
+    const runBtn = inner.querySelector<HTMLButtonElement>(":scope > .run-block-header > .run-btn");
+    if (runBtn) {
+      runBtn.disabled = running;
+      runBtn.className = `run-btn flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition ${
+        running ? "bg-accent/15 text-accent" : "bg-accent text-white hover:opacity-90"
+      }`;
+      runBtn.replaceChildren();
+      if (running) {
+        runBtn.appendChild(svgIcon(STOP_PATH, "h-3 w-3 animate-pulse"));
+        runBtn.appendChild(document.createTextNode(" 运行中..."));
+      } else {
+        runBtn.appendChild(svgIcon(PLAY_PATH, "h-3 w-3"));
+        runBtn.appendChild(document.createTextNode(" 运行"));
+      }
+    }
+
+    inner.querySelector(":scope > .run-block-output")?.remove();
+    const output = ctx.getOutput(blockId);
+    if (output) {
+      inner.appendChild(createOutputDOM(blockId, output));
+    }
+  }
+}
+
 export const PythonRunBlock = createBlockSpec(
   {
     type: "pythonRun" as const,
@@ -255,16 +327,22 @@ export const PythonRunBlock = createBlockSpec(
     content: "none",
   },
   {
+    meta: {
+      // Lets the browser handle events within the block (e.g. textarea focus
+      // and typing), instead of ProseMirror intercepting them.
+      selectable: false,
+    },
     render: (block, editor) => {
       const blockId = block.id;
       const code = block.props.code;
 
       const dom = createRunBlockDOM(blockId, "python", code, (newCode) => {
         const b = editor.document.find((bl) => bl.id === blockId);
-        if (b) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          editor.updateBlock(b, { props: { code: newCode } as any });
-        }
+        if (!b) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (((b.props as any).code ?? "") === newCode) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateBlock(b, { props: { code: newCode } as any });
       });
 
       return { dom };
@@ -290,16 +368,22 @@ export const ShellRunBlock = createBlockSpec(
     content: "none",
   },
   {
+    meta: {
+      // Lets the browser handle events within the block (e.g. textarea focus
+      // and typing), instead of ProseMirror intercepting them.
+      selectable: false,
+    },
     render: (block, editor) => {
       const blockId = block.id;
       const code = block.props.code;
 
       const dom = createRunBlockDOM(blockId, "shell", code, (newCode) => {
         const b = editor.document.find((bl) => bl.id === blockId);
-        if (b) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          editor.updateBlock(b, { props: { code: newCode } as any });
-        }
+        if (!b) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (((b.props as any).code ?? "") === newCode) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        editor.updateBlock(b, { props: { code: newCode } as any });
       });
 
       return { dom };
@@ -318,7 +402,7 @@ export const ShellRunBlock = createBlockSpec(
 export const notebookSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
-    pythonRun: PythonRunBlock,
-    shellRun: ShellRunBlock,
+    pythonRun: PythonRunBlock(),
+    shellRun: ShellRunBlock(),
   },
 });

@@ -10,12 +10,14 @@ import {
 } from "@blocknote/react";
 import {
   filterSuggestionItems,
-  insertOrUpdateBlock,
-} from "@blocknote/core";
-import { BlockNoteView } from "@blocknote/shadcn";
-import "@blocknote/shadcn/style.css";
+  insertOrUpdateBlockForSlashMenu,
+} from "@blocknote/core/extensions";
+import { BlockNoteView } from "@blocknote/mantine";
+import "@blocknote/mantine/style.css";
 import {
+  flushPendingCode,
   notebookSchema,
+  refreshRunBlockDOM,
   setRunBlockContext,
   type RunBlockContextValue,
 } from "@/lib/runBlockSchema";
@@ -94,10 +96,15 @@ export default function BlockNoteEditor({
     runningKeyRef.current = runningKey;
   }, [runningKey]);
 
+  useEffect(() => {
+    refreshRunBlockDOM(ctxRef.current);
+  }, [outputs, runningKey]);
+
   const ctxRef = useRef<RunBlockContextValue>({
     getOutput: (blockId) => outputsRef.current[blockId],
     isRunning: (blockId) => runningKeyRef.current === blockId,
     onRun: (blockId) => {
+      flushPendingCode(editor);
       const block = editor.document.find((b) => b.id === blockId);
       if (!block) return;
       const kind = block.type === "pythonRun" ? "python" : "shell";
@@ -138,6 +145,7 @@ export default function BlockNoteEditor({
 
     (async () => {
       isInitializingRef.current = true;
+      flushPendingCode(editor);
       const segments = parseContent(content);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const allBlocks: any[] = [];
@@ -169,6 +177,7 @@ export default function BlockNoteEditor({
 
   const handleChange = useCallback(async () => {
     if (isInitializingRef.current) return;
+    flushPendingCode(editor);
     const md = await editor.blocksToMarkdownLossy(editor.document);
     pendingContentRef.current = md;
     onChangeRef.current(md);
@@ -185,7 +194,7 @@ export default function BlockNoteEditor({
           group: "运行块",
           aliases: ["python", "py", "python-run"],
           onItemClick: () => {
-            insertOrUpdateBlock(editor, {
+            insertOrUpdateBlockForSlashMenu(editor, {
               type: "pythonRun",
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               props: { code: "" } as any,
@@ -200,7 +209,7 @@ export default function BlockNoteEditor({
           group: "运行块",
           aliases: ["shell", "bash", "sh", "shell-run"],
           onItemClick: () => {
-            insertOrUpdateBlock(editor, {
+            insertOrUpdateBlockForSlashMenu(editor, {
               type: "shellRun",
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               props: { code: "" } as any,
@@ -240,6 +249,7 @@ export default function BlockNoteEditor({
         }
       },
       getPythonBlocks: () => {
+        flushPendingCode(editor);
         return editor.document
           .filter((b) => b.type === "pythonRun")
           .map((b) => ({
@@ -249,6 +259,7 @@ export default function BlockNoteEditor({
           }));
       },
       getBlockCode: (blockId) => {
+        flushPendingCode(editor);
         const block = editor.document.find((b) => b.id === blockId);
         if (!block) return "";
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -270,12 +281,11 @@ export default function BlockNoteEditor({
       slashMenu={false}
       sideMenu={true}
       linkToolbar={true}
-      tableHandles={false}
       emojiPicker={false}
       onChange={handleChange}
     >
       <SuggestionMenuController
-        triggerCharacter="/"
+        triggerCharacter={"/"}
         getItems={getSlashMenuItems as (query: string) => Promise<DefaultReactSuggestionItem[]>}
       />
     </BlockNoteView>
